@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/title_models"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6" />
+
+        <RadioGroup
+            android:id="@+id/radioModelGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp">
+
+            <RadioButton
+                android:id="@+id/radioModelInt8"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/model_int8_label" />
+
+            <RadioButton
+                android:id="@+id/radioModelFull"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/model_full_label" />
+        </RadioGroup>
+
+        <TextView
+            android:id="@+id/txtSelectedStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/selected_model_status_placeholder" />
+
+        <TextView
+            android:id="@+id/txtActiveModel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/active_model_placeholder" />
+
+        <TextView
+            android:id="@+id/txtNativeStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/native_status_placeholder" />
+
+        <ProgressBar
+            android:id="@+id/progressDownload"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:max="1000" />
+
+        <TextView
+            android:id="@+id/txtDownloadProgress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/download_progress_placeholder" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchAppendTrailingSpace"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/append_trailing_space_label" />
+
+        <TextView
+            android:id="@+id/txtAppendTrailingSpaceHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/append_trailing_space_hint" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/title_performance"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6" />
+
+        <TextView
+            android:id="@+id/txtSpeedProfileLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/speed_profile_title" />
+
+        <RadioGroup
+            android:id="@+id/radioSpeedProfileGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp">
+
+            <RadioButton
+                android:id="@+id/radioSpeedBalanced"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/speed_profile_balanced" />
+
+            <RadioButton
+                android:id="@+id/radioSpeedFast"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/speed_profile_fast" />
+
+            <RadioButton
+                android:id="@+id/radioSpeedQuality"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/speed_profile_quality" />
+        </RadioGroup>
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchHardwareAcceleration"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/hardware_acceleration_label" />
+
+        <TextView
+            android:id="@+id/txtHardwareAccelerationHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/hardware_acceleration_hint_auto" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchWarmup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/keep_model_warm_label" />
+
+        <TextView
+            android:id="@+id/txtWarmupHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/keep_model_warm_hint" />
+
+        <Button
+            android:id="@+id/btnGrantMic"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/grant_mic_permission" />
+
+        <Button
+            android:id="@+id/btnDownload"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/download_selected_model" />
+
+        <Button
+            android:id="@+id/btnDelete"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/delete_selected_model" />
+
+        <Button
+            android:id="@+id/btnSetActive"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/set_as_active_model" />
+
+        <Button
+            android:id="@+id/btnOpenImeSettings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/open_ime_settings" />
+
+        <Button
+            android:id="@+id/btnOpenInputPicker"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/open_input_picker" />
+    </LinearLayout>
+</ScrollView>

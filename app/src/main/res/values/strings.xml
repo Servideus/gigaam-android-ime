@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GigaAM Диктовка IME</string>
+    <string name="ime_name">Клавиатура GigaAM</string>
+
+    <string name="title_models">Выбор модели GigaAM</string>
+    <string name="model_int8_label">GigaAM v3 e2e-CTC (int8) — быстрее, компактнее</string>
+    <string name="model_full_label">GigaAM v3 e2e-CTC (full) — выше качество</string>
+    <string name="selected_model_status_placeholder">Статус выбранной модели: неизвестно</string>
+    <string name="active_model_placeholder">Активная модель: неизвестно</string>
+    <string name="native_status_placeholder">Нативное ядро: неизвестно</string>
+    <string name="download_progress_placeholder">Прогресс загрузки: ожидание</string>
+    <string name="append_trailing_space_label">Добавлять пробел после транскрибации</string>
+    <string name="append_trailing_space_hint">Рекомендуется для удобного набора в чатах и заметках</string>
+    <string name="title_performance">Производительность</string>
+    <string name="speed_profile_title">Профиль скорости</string>
+    <string name="speed_profile_balanced">Сбалансированный</string>
+    <string name="speed_profile_fast">Быстрый</string>
+    <string name="speed_profile_quality">Качественный</string>
+    <string name="hardware_acceleration_label">Аппаратное ускорение (экспериментально)</string>
+    <string name="hardware_acceleration_hint_auto">Использует XNNPACK и NNAPI при наличии, затем CPU</string>
+    <string name="hardware_acceleration_hint_cpu">Только CPU (стабильнее, но обычно медленнее)</string>
+    <string name="keep_model_warm_label">Держать модель прогретой</string>
+    <string name="keep_model_warm_hint">Оставляет модель в памяти и прогревает после выбора, чтобы снизить задержку первого запуска</string>
+
+    <string name="grant_mic_permission">Выдать доступ к микрофону</string>
+    <string name="download_selected_model">Скачать выбранную модель</string>
+    <string name="delete_selected_model">Удалить выбранную модель</string>
+    <string name="set_as_active_model">Сделать модель активной</string>
+    <string name="open_ime_settings">Открыть настройки клавиатуры</string>
+    <string name="open_input_picker">Открыть выбор клавиатуры</string>
+
+    <string name="ime_button_settings_desc">Открыть настройки клавиатуры</string>
+    <string name="ime_button_next_ime_desc">Переключить клавиатуру</string>
+    <string name="ime_button_mic_idle_desc">Начать запись голоса</string>
+    <string name="ime_button_mic_recording_desc">Остановить запись голоса</string>
+    <string name="ime_button_mic_busy_desc">Идёт распознавание</string>
+    <string name="ime_shift_off_desc">Shift выключен</string>
+    <string name="ime_shift_on_desc">Shift включен</string>
+
+    <string name="ime_key_shift">\u21E7</string>
+    <string name="ime_key_shift_active">\u2B06</string>
+    <string name="ime_key_shift_locked">\u21EA</string>
+    <string name="ime_key_backspace">\u232B</string>
+    <string name="ime_key_symbols">\?123</string>
+    <string name="ime_key_letters">АБВ</string>
+    <string name="ime_key_language_ru">RU</string>
+    <string name="ime_key_language_en">EN</string>
+    <string name="ime_key_space_desc">Пробел</string>
+    <string name="ime_key_enter">\u21B5</string>
+    <string name="ime_key_enter_desc">Ввод</string>
+
+    <string name="ime_status_idle">Ожидание</string>
+    <string name="ime_status_recording">Запись...</string>
+    <string name="ime_status_transcribing">Распознавание...</string>
+    <string name="ime_status_no_permission">Нет доступа к микрофону</string>
+    <string name="ime_status_model_missing">Выбранная модель не скачана</string>
+    <string name="ime_status_native_unavailable">Нативная библиотека недоступна</string>
+    <string name="ime_status_empty_audio">Аудио не записано</string>
+    <string name="ime_status_ready">Готово</string>
+
+    <string name="status_selected_model">Выбранная модель: %1$s (%2$s)</string>
+    <string name="status_active_model">Активная модель: %1$s</string>
+    <string name="status_model_ready">готова</string>
+    <string name="status_model_not_ready">не скачана</string>
+    <string name="status_native_ready">Нативное ядро: загружено</string>
+    <string name="status_native_error">Нативное ядро: %1$s</string>
+    <string name="status_download_percent">Прогресс загрузки: %1$d%% (%2$s / %3$s)</string>
+    <string name="status_download_idle">Прогресс загрузки: ожидание</string>
+    <string name="status_download_success">Модель скачана: %1$s</string>
+    <string name="status_delete_success">Модель удалена: %1$s</string>
+    <string name="status_set_active_success">Активная модель: %1$s</string>
+    <string name="status_warmup_success">Прогрев завершён: %1$s</string>
+    <string name="status_warmup_failed">Ошибка прогрева: %1$s</string>
+    <string name="status_error">Ошибка: %1$s</string>
+    <string name="permission_granted">Доступ к микрофону выдан</string>
+    <string name="permission_denied">Доступ к микрофону отклонён</string>
+</resources>

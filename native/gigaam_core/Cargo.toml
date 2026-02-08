@@ -1,0 +1,23 @@
+[package]
+name = "gigaam_core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1.0.95"
+jni = "0.21.1"
+log = "0.4.25"
+ndarray = "0.16.1"
+once_cell = "1.20.2"
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "load-dynamic"] }
+regex = "1.11.1"
+rustfft = "6.4.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,377 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/imeSurface"
+    android:orientation="vertical"
+    android:paddingStart="6dp"
+    android:paddingTop="6dp"
+    android:paddingEnd="6dp"
+    android:paddingBottom="8dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageButton
+            android:id="@+id/btnNextIme"
+            style="@style/ImeToolbarIconButton"
+            android:contentDescription="@string/ime_button_next_ime_desc"
+            android:src="@android:drawable/ic_menu_rotate" />
+
+        <ImageButton
+            android:id="@+id/btnSettings"
+            style="@style/ImeToolbarIconButton"
+            android:layout_marginStart="4dp"
+            android:contentDescription="@string/ime_button_settings_desc"
+            android:src="@android:drawable/ic_menu_manage" />
+
+        <TextView
+            android:id="@+id/txtImeStatus"
+            style="@style/ImeStatusText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="@string/ime_status_idle" />
+
+        <ImageButton
+            android:id="@+id/btnMicAction"
+            style="@style/ImeToolbarPrimaryButton"
+            android:contentDescription="@string/ime_button_mic_idle_desc"
+            android:src="@android:drawable/ic_btn_speak_now" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/keyTop1"
+            style="@style/ImeDigitKey"
+            android:layout_weight="1"
+            android:text="1" />
+
+        <Button
+            android:id="@+id/keyTop2"
+            style="@style/ImeDigitKey"
+            android:layout_weight="1"
+            android:text="2" />
+
+        <Button
+            android:id="@+id/keyTop3"
+            style="@style/ImeDigitKey"
+            android:layout_weight="1"
+            android:text="3" />
+
+        <Button
+            android:id="@+id/keyTop4"
+            style="@style/ImeDigitKey"
+            android:layout_weight="1"
+            android:text="4" />
+
+        <Button
+            android:id="@+id/keyTop5"
+            style="@style/ImeDigitKey"
+            android:layout_weight="1"
+            android:text="5" />
+
+        <Button
+            android:id="@+id/keyTop6"
+            style="@style/ImeDigitKey"
+            android:layout_weight="1"
+            android:text="6" />
+
+        <Button
+            android:id="@+id/keyTop7"
+            style="@style/ImeDigitKey"
+            android:layout_weight="1"
+            android:text="7" />
+
+        <Button
+            android:id="@+id/keyTop8"
+            style="@style/ImeDigitKey"
+            android:layout_weight="1"
+            android:text="8" />
+
+        <Button
+            android:id="@+id/keyTop9"
+            style="@style/ImeDigitKey"
+            android:layout_weight="1"
+            android:text="9" />
+
+        <Button
+            android:id="@+id/keyTop10"
+            style="@style/ImeDigitKey"
+            android:layout_weight="1"
+            android:text="0" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/keyRow1_1"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="й" />
+
+        <Button
+            android:id="@+id/keyRow1_2"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="ц" />
+
+        <Button
+            android:id="@+id/keyRow1_3"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="у" />
+
+        <Button
+            android:id="@+id/keyRow1_4"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="к" />
+
+        <Button
+            android:id="@+id/keyRow1_5"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="е" />
+
+        <Button
+            android:id="@+id/keyRow1_6"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="н" />
+
+        <Button
+            android:id="@+id/keyRow1_7"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="г" />
+
+        <Button
+            android:id="@+id/keyRow1_8"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="ш" />
+
+        <Button
+            android:id="@+id/keyRow1_9"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="щ" />
+
+        <Button
+            android:id="@+id/keyRow1_10"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="з" />
+
+        <Button
+            android:id="@+id/keyRow1_11"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="х" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/keyRow2_1"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="ф" />
+
+        <Button
+            android:id="@+id/keyRow2_2"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="ы" />
+
+        <Button
+            android:id="@+id/keyRow2_3"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="в" />
+
+        <Button
+            android:id="@+id/keyRow2_4"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="а" />
+
+        <Button
+            android:id="@+id/keyRow2_5"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="п" />
+
+        <Button
+            android:id="@+id/keyRow2_6"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="р" />
+
+        <Button
+            android:id="@+id/keyRow2_7"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="о" />
+
+        <Button
+            android:id="@+id/keyRow2_8"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="л" />
+
+        <Button
+            android:id="@+id/keyRow2_9"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="д" />
+
+        <Button
+            android:id="@+id/keyRow2_10"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="ж" />
+
+        <Button
+            android:id="@+id/keyRow2_11"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="э" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <ImageButton
+            android:id="@+id/btnShift"
+            style="@style/ImeSpecialIconKey"
+            android:layout_weight="1.25"
+            android:contentDescription="@string/ime_shift_off_desc"
+            android:src="@drawable/ic_shift_inactive_outline" />
+
+        <Button
+            android:id="@+id/keyRow3_1"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="я" />
+
+        <Button
+            android:id="@+id/keyRow3_2"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="ч" />
+
+        <Button
+            android:id="@+id/keyRow3_3"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="с" />
+
+        <Button
+            android:id="@+id/keyRow3_4"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="м" />
+
+        <Button
+            android:id="@+id/keyRow3_5"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="и" />
+
+        <Button
+            android:id="@+id/keyRow3_6"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="т" />
+
+        <Button
+            android:id="@+id/keyRow3_7"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="ь" />
+
+        <Button
+            android:id="@+id/keyRow3_8"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="б" />
+
+        <Button
+            android:id="@+id/keyRow3_9"
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="ю" />
+
+        <Button
+            android:id="@+id/btnBackspace"
+            style="@style/ImeSpecialKey"
+            android:layout_weight="1.25"
+            android:text="@string/ime_key_backspace" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnSymbols"
+            style="@style/ImeSpecialKey"
+            android:layout_weight="1.25"
+            android:text="@string/ime_key_symbols" />
+
+        <Button
+            android:id="@+id/btnComma"
+            style="@style/ImeSpecialKey"
+            android:layout_weight="0.95"
+            android:text="," />
+
+        <Button
+            android:id="@+id/btnLanguage"
+            style="@style/ImeSpecialKey"
+            android:layout_weight="0.95"
+            android:text="@string/ime_key_language_ru" />
+
+        <Button
+            android:id="@+id/btnSpace"
+            style="@style/ImeSpecialKey"
+            android:layout_weight="3.2"
+            android:contentDescription="@string/ime_key_space_desc"
+            android:text="" />
+
+        <Button
+            android:id="@+id/btnPeriod"
+            style="@style/ImeSpecialKey"
+            android:layout_weight="0.95"
+            android:text="." />
+
+        <ImageButton
+            android:id="@+id/btnEnter"
+            style="@style/ImeSpecialIconKey"
+            android:layout_weight="1.25"
+            android:contentDescription="@string/ime_key_enter_desc"
+            android:src="@drawable/ic_enter_large" />
+    </LinearLayout>
+</LinearLayout>
