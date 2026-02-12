@@ -26,11 +26,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.ArrayDeque
 
 class GigaamImeService : InputMethodService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val nativeCallMutex = Mutex()
 
     private lateinit var modelRepository: ModelRepository
     private lateinit var selectionStore: ModelSelectionStore
@@ -164,8 +167,16 @@ class GigaamImeService : InputMethodService() {
     override fun onDestroy() {
         super.onDestroy()
         stopRecordingInternal()
-        runCatching { GigaamNativeBridge.unload() }
         serviceScope.cancel()
+        if (GigaamNativeBridge.isAvailable()) {
+            Thread {
+                runCatching { GigaamNativeBridge.unload() }
+            }.apply {
+                name = "gigaam-ime-native-unload"
+                isDaemon = true
+                start()
+            }
+        }
     }
 
     private fun bindKeyboardActions() {
@@ -492,11 +503,13 @@ class GigaamImeService : InputMethodService() {
             }
 
             runCatching {
-                GigaamNativeBridge.setRuntimeOptions(
-                    modelId = activeModel.id,
-                    speedProfile = runtimeSettings.speedProfile.id,
-                    acceleratorMode = runtimeSettings.acceleratorMode.id,
-                )
+                runNativeCall {
+                    GigaamNativeBridge.setRuntimeOptions(
+                        modelId = activeModel.id,
+                        speedProfile = runtimeSettings.speedProfile.id,
+                        acceleratorMode = runtimeSettings.acceleratorMode.id,
+                    )
+                }
             }.onFailure { error ->
                 if (DEBUG_LOGS) {
                     Log.w(TAG, "Failed to apply runtime options: ${error.message}")
@@ -505,7 +518,7 @@ class GigaamImeService : InputMethodService() {
 
             val nativeStartNs = SystemClock.elapsedRealtimeNanos()
             val textResult = runCatching {
-                withContext(Dispatchers.Default) {
+                runNativeCall {
                     GigaamNativeBridge.transcribe(
                         modelsRootDir = modelRepository.modelsRootDir.absolutePath,
                         modelId = activeModel.id,
@@ -515,8 +528,11 @@ class GigaamImeService : InputMethodService() {
                 }
             }
             val nativeCallMs = nsToMs(SystemClock.elapsedRealtimeNanos() - nativeStartNs)
-            val nativeTimings = runCatching { GigaamNativeBridge.getLastProfilingSummary() }
-                .getOrDefault("native timings unavailable")
+            val nativeTimings = runCatching {
+                runNativeCall {
+                    GigaamNativeBridge.getLastProfilingSummary()
+                }
+            }.getOrDefault("native timings unavailable")
 
             transcribing = false
             updateButtons()
@@ -546,7 +562,11 @@ class GigaamImeService : InputMethodService() {
             }
 
             if (!runtimeSettings.warmupEnabled) {
-                runCatching { GigaamNativeBridge.unload() }
+                runCatching {
+                    runNativeCall {
+                        GigaamNativeBridge.unload()
+                    }
+                }
             }
         }
     }
@@ -618,11 +638,13 @@ class GigaamImeService : InputMethodService() {
         val runtimeSettings = selectionStore.getRuntimeSettings()
 
         runCatching {
-            GigaamNativeBridge.setRuntimeOptions(
-                modelId = activeModel.id,
-                speedProfile = runtimeSettings.speedProfile.id,
-                acceleratorMode = runtimeSettings.acceleratorMode.id,
-            )
+            runNativeCall {
+                GigaamNativeBridge.setRuntimeOptions(
+                    modelId = activeModel.id,
+                    speedProfile = runtimeSettings.speedProfile.id,
+                    acceleratorMode = runtimeSettings.acceleratorMode.id,
+                )
+            }
         }.onFailure {
             if (DEBUG_LOGS) {
                 Log.w(TAG, "Unable to set runtime options: ${it.message}")
@@ -639,18 +661,26 @@ class GigaamImeService : InputMethodService() {
             return
         }
 
-        val result = withContext(Dispatchers.Default) {
-            runCatching {
+        val result = runCatching {
+            runNativeCall {
                 GigaamNativeBridge.warmup(
                     modelsRootDir = modelRepository.modelsRootDir.absolutePath,
                     modelId = activeModel.id,
                 )
-            }.getOrElse { "warmup exception: ${it.message}" }
-        }
+            }
+        }.getOrElse { "warmup exception: ${it.message}" }
         if (result.startsWith("ok")) {
             lastWarmedModelId = activeModel.id
         } else if (DEBUG_LOGS) {
             Log.w(TAG, "Warmup failed for ${activeModel.id}: $result")
+        }
+    }
+
+    private suspend fun <T> runNativeCall(block: () -> T): T {
+        return withContext(Dispatchers.Default) {
+            nativeCallMutex.withLock {
+                block()
+            }
         }
     }
 
