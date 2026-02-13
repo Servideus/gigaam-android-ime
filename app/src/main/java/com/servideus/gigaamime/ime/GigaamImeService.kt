@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.inputmethodservice.InputMethodService
 import android.os.SystemClock
 import android.util.Log
+import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -23,8 +24,11 @@ import com.servideus.gigaamime.data.ModelSelectionStore
 import com.servideus.gigaamime.nativebridge.GigaamNativeBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -56,9 +60,10 @@ class GigaamImeService : InputMethodService() {
     private val row2Buttons = mutableListOf<Button>()
     private val row3Buttons = mutableListOf<Button>()
 
-    private var shiftEnabled = true
+    private var shiftEnabled = false
     private var symbolMode = false
     private var keyboardLanguage = KeyboardLanguage.RU
+    private var backspaceRepeatJob: Job? = null
 
     private var audioCapture: AudioCapture? = null
     private var recording = false
@@ -78,7 +83,7 @@ class GigaamImeService : InputMethodService() {
 
     override fun onCreateInputView(): View {
         val view = layoutInflater.inflate(R.layout.ime_view, null)
-        shiftEnabled = true
+        shiftEnabled = false
         symbolMode = false
         btnMicAction = view.findViewById(R.id.btnMicAction)
         btnSettings = view.findViewById(R.id.btnSettings)
@@ -156,7 +161,7 @@ class GigaamImeService : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
-        shiftEnabled = true
+        shiftEnabled = false
         symbolMode = false
         applyKeyboardLayout()
         serviceScope.launch {
@@ -164,9 +169,15 @@ class GigaamImeService : InputMethodService() {
         }
     }
 
+    override fun onFinishInputView(finishingInput: Boolean) {
+        super.onFinishInputView(finishingInput)
+        stopBackspaceRepeatDeletion()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         stopRecordingInternal()
+        stopBackspaceRepeatDeletion()
         serviceScope.cancel()
         if (GigaamNativeBridge.isAvailable()) {
             Thread {
@@ -195,8 +206,19 @@ class GigaamImeService : InputMethodService() {
             applyKeyboardLayout()
         }
 
-        btnBackspace?.setOnClickListener {
-            currentInputConnection?.deleteSurroundingText(1, 0)
+        btnBackspace?.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    deleteOneCharacter()
+                    startBackspaceRepeatDeletion()
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> {
+                    stopBackspaceRepeatDeletion()
+                    true
+                }
+                else -> true
+            }
         }
 
         btnSymbols?.setOnClickListener {
@@ -404,6 +426,26 @@ class GigaamImeService : InputMethodService() {
             shiftEnabled = false
             applyKeyboardLayout()
         }
+    }
+
+    private fun deleteOneCharacter() {
+        currentInputConnection?.deleteSurroundingText(1, 0)
+    }
+
+    private fun startBackspaceRepeatDeletion() {
+        stopBackspaceRepeatDeletion()
+        backspaceRepeatJob = serviceScope.launch {
+            delay(BACKSPACE_REPEAT_INITIAL_DELAY_MS)
+            while (isActive) {
+                deleteOneCharacter()
+                delay(BACKSPACE_REPEAT_INTERVAL_MS)
+            }
+        }
+    }
+
+    private fun stopBackspaceRepeatDeletion() {
+        backspaceRepeatJob?.cancel()
+        backspaceRepeatJob = null
     }
 
     private fun onMicActionClicked() {
@@ -701,6 +743,8 @@ class GigaamImeService : InputMethodService() {
         const val TARGET_SAMPLE_RATE = 16_000
         const val MAX_TIMING_HISTORY = 30
         const val DEBUG_LOGS = true
+        const val BACKSPACE_REPEAT_INITIAL_DELAY_MS = 300L
+        const val BACKSPACE_REPEAT_INTERVAL_MS = 45L
 
         val DIGIT_ROW = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
         val LETTER_ROW_RU_1 = listOf(
