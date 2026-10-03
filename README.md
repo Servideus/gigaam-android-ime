@@ -1,131 +1,77 @@
-# GigaAM Android IME (MVP)
+[Инструкция на русском языке здесь](README.ru.md).
 
-## English overview
+# GigaAM Android IME
 
-An experimental Android keyboard for offline Russian dictation using GigaAM v3 e2e-CTC.
-The app records speech and inserts recognized text into the active text field.
-It includes RU/EN keyboard layouts and model-management settings.
-The Android layer uses Kotlin; speech inference runs in a native Rust core through JNI and ONNX models.
-Models are downloaded after installation and checked against SHA-256 hashes.
-Both int8 and full models are supported. Hardware acceleration is experimental.
-The MVP targets arm64-v8a devices and stores models in the app's internal storage.
-Build and installation instructions are provided in Russian below.
+An experimental Android keyboard for offline Russian dictation using GigaAM v3 e2e-CTC. Kotlin handles the keyboard and settings; a Rust core runs ONNX inference through JNI. Models are downloaded separately and checked against SHA-256 hashes.
 
-Android-клавиатура (IME) для офлайн-диктовки на русском языке на базе GigaAM v3 e2e-CTC.
+## Status
 
-## Проверенная бета
+Beta 0.1.2 fixes keyboard switching on Android 8. Debug/release builds and lint passed, with 71 lint warnings remaining. The user confirmed that int8 dictation inserted text on an Infinix X6833B. See the [verification report](docs/verification.md) for the tested versions and limits; Android 8 hardware, the full model and acceleration were not verified.
 
-Версия 0.1.2 исправляет переключение клавиатуры на Android 8. Сборки debug/release и Android lint прошли; остаются 71 предупреждение lint. Диктовка с моделью int8 проверена на Infinix X6833B: пользователь подтвердил появление текста в поле ввода. Подробности и границы проверки: [протокол](docs/verification.md).
+## Features
 
-Код приложения распространяется по [MIT](LICENSE). Авторство GigaAM и лицензии зависимостей описаны в [THIRD_PARTY.md](THIRD_PARTY.md). Модели скачиваются отдельно и не входят в APK.
+- RU/EN layouts, language switching, Shift, Backspace, Enter, digits and symbols.
+- Start/stop recording with the microphone button and insert recognized text into the active field.
+- Download/delete models, choose an active model and select a performance profile.
+- Experimental hardware acceleration and model warmup settings.
+- SHA-256 verification and models stored in the app's internal storage.
 
-## Что реализовано
+## Models
 
-- Собственное IME-приложение на Android (`InputMethodService`).
-- Клавиатура с раскладками RU/EN, переключением языка, `Shift`, `Backspace`, `Enter`, цифрами и символами.
-- Голосовой ввод с кнопкой микрофона:
-  - старт записи,
-  - стоп записи,
-  - распознавание и вставка текста в активное поле.
-- Экран настроек:
-  - выбор модели (`int8` / `full`),
-  - скачивание/удаление модели,
-  - установка активной модели,
-  - переключение профиля производительности,
-  - аппаратное ускорение (экспериментально),
-  - режим прогрева модели.
-- Загрузка моделей с проверкой SHA-256.
-- Нативное Rust-ядро (`native/gigaam_core`) + JNI-мост для инференса.
+| Model | ONNX file |
+|---|---|
+| `gigaam-v3-e2e-ctc-int8` | `v3_e2e_ctc.int8.onnx` |
+| `gigaam-v3-e2e-ctc` | `v3_e2e_ctc.onnx` |
 
-## Модели
+Both use `v3_e2e_ctc_vocab.txt` and `v3_e2e_ctc.yaml`. URLs, hashes and sizes are defined in [ModelSpec.kt](app/src/main/java/com/servideus/gigaamime/data/ModelSpec.kt). Models are not bundled in the APK.
 
-- `gigaam-v3-e2e-ctc-int8`
-  - `v3_e2e_ctc.int8.onnx`
-  - `v3_e2e_ctc_vocab.txt`
-  - `v3_e2e_ctc.yaml`
-- `gigaam-v3-e2e-ctc`
-  - `v3_e2e_ctc.onnx`
-  - `v3_e2e_ctc_vocab.txt`
-  - `v3_e2e_ctc.yaml`
+## Build
 
-Каталог моделей (URL, SHA-256, размер) задан в:
+Requires Android Studio/SDK, JDK 17, stable Rust, `cargo-ndk`, Android SDK Platform 35, NDK 27.2.12479018 and the `aarch64-linux-android` Rust target.
 
-- `app/src/main/java/com/servideus/gigaamime/data/ModelSpec.kt`
-
-## Требования для сборки
-
-- Android Studio / Android SDK
-- JDK 17
-- Rust (stable)
-- `cargo-ndk`
-- Android SDK Platform 35 и NDK 27.2.12479018
-- Rust target `aarch64-linux-android` (`rustup target add aarch64-linux-android`)
-
-Установка `cargo-ndk`:
-
-```bash
+```sh
 cargo install cargo-ndk
+rustup target add aarch64-linux-android
 ```
 
-## Сборка
-
-### Вариант 1 (рекомендуется): через Gradle
+On Windows, set `ANDROID_HOME` to your SDK and `ANDROID_NDK_HOME` to its `ndk/27.2.12479018` directory.
 
 ```powershell
 .\gradlew.bat assembleDebug
 ```
 
-Gradle сам вызывает сборку Rust на этапе `preBuild`.
-
-На Windows задайте `ANDROID_HOME` на свой SDK и `ANDROID_NDK_HOME` на его каталог `ndk/27.2.12479018`. Для полной проверки используйте:
+Gradle invokes the Rust build during `preBuild`. For debug/release builds and lint together:
 
 ```powershell
 ./scripts/verify-build.ps1
 ```
 
-Скрипт собирает debug/release и запускает lint. Он задаёт отдельный временный каталог сокетов Java, чтобы обойти ошибку `Unable to establish loopback connection` при коротком имени Windows в `TEMP`, и восстанавливает переменную окружения после проверки.
+The verification script uses a temporary Java socket directory to avoid `Unable to establish loopback connection` with an 8.3 Windows TEMP path, then restores the environment.
 
-### Вариант 2: вручную собрать Rust `.so`, потом Gradle
+Alternatively, build the Rust library explicitly:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build-rust-android.ps1 -Abi arm64-v8a -Profile release
 .\gradlew.bat assembleDebug -PskipRustBuild=true
 ```
 
-APK после сборки:
+Debug APK: `app/build/outputs/apk/debug/app-debug.apk`. The Gradle release APK is unsigned; a distributable release requires your signing setup.
 
-- `app/build/outputs/apk/debug/app-debug.apk`
+## Use on a device
 
-## Установка и запуск на устройстве
+1. Install the APK and open GigaAM IME settings.
+2. Allow microphone access, download a model and make it active.
+3. Enable `GigaAM Keyboard` in Android settings.
+4. Select it with the keyboard switcher, open a text field and use the microphone button.
 
-1. Установите APK на телефон.
-2. Откройте приложение настроек GigaAM IME.
-3. Выдайте доступ к микрофону.
-4. Скачайте выбранную модель и сделайте её активной.
-5. В системных настройках Android включите клавиатуру `GigaAM Keyboard`.
-6. Выберите её через переключатель клавиатур и начните ввод.
+## Build options and layout
 
-## Параметры сборки
+`-PskipRustBuild=true` skips Rust compilation; `-PrustAbi=arm64-v8a` selects the ABI; `-PrustProfile=release` or `debug` selects the Rust profile. Configuration is in [app/build.gradle.kts](app/build.gradle.kts).
 
-- Пропустить сборку Rust:
-  - `-PskipRustBuild=true`
-- Выбрать ABI:
-  - `-PrustAbi=arm64-v8a`
-- Профиль Rust:
-  - `-PrustProfile=release`
-  - `-PrustProfile=debug`
+`app/` contains the Android UI, IME and model downloads. `native/gigaam_core/` contains inference. `scripts/build-rust-android.ps1` builds the Android native library.
 
-Настройка находится в:
+The primary target is `arm64-v8a`. Downloading models requires a network connection; transcription uses the installed local model.
 
-- `app/build.gradle.kts`
+## License
 
-## Структура проекта
-
-- `app/` — Android-приложение (UI, IME-сервис, настройки, загрузка моделей).
-- `native/gigaam_core/` — Rust-ядро распознавания.
-- `scripts/build-rust-android.ps1` — скрипт сборки Rust-библиотек под Android.
-
-## Ограничения MVP
-
-- Основная цель: `arm64-v8a`.
-- Модели скачиваются после установки приложения и хранятся во внутреннем хранилище приложения.
+Application code: [MIT](LICENSE). GigaAM authorship, model terms and dependency notices are documented in [THIRD_PARTY.md](THIRD_PARTY.md). Dependencies and separately downloaded models retain their respective licenses.
