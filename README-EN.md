@@ -2,6 +2,10 @@
 
 Android keyboard (IME) for offline Russian dictation powered by GigaAM v3 e2e-CTC.
 
+Beta 0.1.2 fixes keyboard switching on Android 8. Debug/release builds and lint passed; 71 lint warnings remain. An int8 dictation test on an Infinix X6833B produced text, as confirmed by the user. See [verification](docs/verification.md) for the exact scope. Application code is [MIT](LICENSE); models and dependency attribution are described in [THIRD_PARTY.md](THIRD_PARTY.md).
+
+Windows verification: set `ANDROID_HOME` and `ANDROID_NDK_HOME` (NDK 27.2.12479018), then run `./scripts/verify-build.ps1`. This builds both APK variants and runs lint, including a workaround for Java socket failures with an 8.3 TEMP path.
+
 ## Implemented
 
 - Native Android IME app (`InputMethodService`).

@@ -13,6 +13,12 @@ Build and installation instructions are provided in Russian below.
 
 Android-клавиатура (IME) для офлайн-диктовки на русском языке на базе GigaAM v3 e2e-CTC.
 
+## Проверенная бета
+
+Версия 0.1.2 исправляет переключение клавиатуры на Android 8. Сборки debug/release и Android lint прошли; остаются 71 предупреждение lint. Диктовка с моделью int8 проверена на Infinix X6833B: пользователь подтвердил появление текста в поле ввода. Подробности и границы проверки: [протокол](docs/verification.md).
+
+Код приложения распространяется по [MIT](LICENSE). Авторство GigaAM и лицензии зависимостей описаны в [THIRD_PARTY.md](THIRD_PARTY.md). Модели скачиваются отдельно и не входят в APK.
+
 ## Что реализовано
 
 - Собственное IME-приложение на Android (`InputMethodService`).
@@ -52,6 +58,8 @@ Android-клавиатура (IME) для офлайн-диктовки на р�
 - JDK 17
 - Rust (stable)
 - `cargo-ndk`
+- Android SDK Platform 35 и NDK 27.2.12479018
+- Rust target `aarch64-linux-android` (`rustup target add aarch64-linux-android`)
 
 Установка `cargo-ndk`:
 
@@ -68,6 +76,14 @@ cargo install cargo-ndk
 ```
 
 Gradle сам вызывает сборку Rust на этапе `preBuild`.
+
+На Windows задайте `ANDROID_HOME` на свой SDK и `ANDROID_NDK_HOME` на его каталог `ndk/27.2.12479018`. Для полной проверки используйте:
+
+```powershell
+./scripts/verify-build.ps1
+```
+
+Скрипт собирает debug/release и запускает lint. Он задаёт отдельный временный каталог сокетов Java, чтобы обойти ошибку `Unable to establish loopback connection` при коротком имени Windows в `TEMP`, и восстанавливает переменную окружения после проверки.
 
 ### Вариант 2: вручную собрать Rust `.so`, потом Gradle
 

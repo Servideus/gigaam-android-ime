@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.inputmethodservice.InputMethodService
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import android.view.MotionEvent
@@ -633,7 +634,12 @@ class GigaamImeService : InputMethodService() {
 
     private fun openNextKeyboard() {
         runCatching {
-            switchToNextInputMethod(false)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                switchToNextInputMethod(false)
+            } else {
+                val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.showInputMethodPicker()
+            }
         }.onFailure {
             val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
             imm.showInputMethodPicker()
