@@ -1,5 +1,16 @@
 # GigaAM Android IME (MVP)
 
+## English overview
+
+An experimental Android keyboard for offline Russian dictation using GigaAM v3 e2e-CTC.
+The app records speech and inserts recognized text into the active text field.
+It includes RU/EN keyboard layouts and model-management settings.
+The Android layer uses Kotlin; speech inference runs in a native Rust core through JNI and ONNX models.
+Models are downloaded after installation and checked against SHA-256 hashes.
+Both int8 and full models are supported. Hardware acceleration is experimental.
+The MVP targets arm64-v8a devices and stores models in the app's internal storage.
+Build and installation instructions are provided in Russian below.
+
 Android-клавиатура (IME) для офлайн-диктовки на русском языке на базе GigaAM v3 e2e-CTC.
 
 ## Что реализовано
