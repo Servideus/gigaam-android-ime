@@ -1,6 +1,5 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use ndarray::{s, Array1, Array3, ArrayView3, Ix3};
-use once_cell::sync::Lazy;
 use ort::execution_providers::cpu::CPUExecutionProvider;
 use ort::execution_providers::nnapi::NNAPIExecutionProvider;
 use ort::execution_providers::xnnpack::XNNPACKExecutionProvider;
@@ -15,8 +14,8 @@ use std::cmp::Ordering;
 use std::f32::consts::PI;
 use std::fs;
 use std::num::NonZeroUsize;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::Path;
+use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
 const MODEL_FILENAMES: [&str; 2] = ["v3_e2e_ctc.int8.onnx", "v3_e2e_ctc.onnx"];
@@ -27,8 +26,8 @@ const MEL_MIN_CLAMP: f32 = 1e-9;
 const MEL_MAX_CLAMP: f32 = 1e9;
 const XNNPACK_THREAD_COUNT: usize = 4;
 
-static DECODE_SPACE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\A\s|\s\B|(\s)\b").expect("valid decode spacing regex"));
+static DECODE_SPACE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\A\s|\s\B|(\s)\b").expect("valid decode spacing regex"));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeSpeedProfile {
@@ -46,7 +45,7 @@ impl RuntimeSpeedProfile {
         }
     }
 
-    pub fn as_id(&self) -> &'static str {
+    pub fn as_id(self) -> &'static str {
         match self {
             Self::Balanced => "balanced",
             Self::Fast => "fast",
@@ -58,6 +57,7 @@ impl RuntimeSpeedProfile {
         !matches!(self, Self::Quality)
     }
 
+    /// (intra_threads, inter_threads, parallel_execution) for the CPU-only mode.
     fn cpu_threads(self) -> (usize, usize, bool) {
         match self {
             Self::Balanced => (4, 1, false),
@@ -81,7 +81,7 @@ impl RuntimeAcceleratorMode {
         }
     }
 
-    pub fn as_id(&self) -> &'static str {
+    pub fn as_id(self) -> &'static str {
         match self {
             Self::Auto => "auto",
             Self::Cpu => "cpu",
@@ -95,29 +95,23 @@ pub struct RuntimeOptions {
     pub accelerator_mode: RuntimeAcceleratorMode,
 }
 
-impl Default for RuntimeOptions {
-    fn default() -> Self {
-        Self {
-            speed_profile: RuntimeSpeedProfile::Balanced,
-            accelerator_mode: RuntimeAcceleratorMode::Auto,
-        }
-    }
-}
-
 impl RuntimeOptions {
+    pub const DEFAULT: Self = Self {
+        speed_profile: RuntimeSpeedProfile::Balanced,
+        accelerator_mode: RuntimeAcceleratorMode::Auto,
+    };
+
     pub fn from_ids(speed_profile: &str, accelerator_mode: &str) -> Self {
         Self {
             speed_profile: RuntimeSpeedProfile::from_id(speed_profile),
             accelerator_mode: RuntimeAcceleratorMode::from_id(accelerator_mode),
         }
     }
+}
 
-    pub fn cache_fragment(self) -> String {
-        format!(
-            "profile={};accelerator={}",
-            self.speed_profile.as_id(),
-            self.accelerator_mode.as_id()
-        )
+impl Default for RuntimeOptions {
+    fn default() -> Self {
+        Self::DEFAULT
     }
 }
 
@@ -137,10 +131,11 @@ pub struct NativeTranscriptionReport {
 }
 
 impl NativeTranscriptionReport {
-    pub fn to_json(&self) -> String {
+    /// JSON object members without the surrounding braces, so callers can add their own fields.
+    pub fn json_fields(&self) -> String {
         let safe_provider = escape_json_string(&self.provider_summary);
         format!(
-            "{{\"provider\":\"{safe_provider}\",\"feature_extraction_ms\":{},\"ort_run_ms\":{},\"decode_ms\":{},\"total_ms\":{}}}",
+            "\"provider\":\"{safe_provider}\",\"feature_extraction_ms\":{},\"ort_run_ms\":{},\"decode_ms\":{},\"total_ms\":{}",
             self.timings.feature_extraction_ms,
             self.timings.ort_run_ms,
             self.timings.decode_ms,
@@ -149,7 +144,6 @@ impl NativeTranscriptionReport {
     }
 }
 
-#[derive(Debug, Clone)]
 struct SessionRuntimePlan {
     providers: Vec<ExecutionProviderDispatch>,
     provider_summary: String,
@@ -160,39 +154,33 @@ struct SessionRuntimePlan {
 
 impl SessionRuntimePlan {
     fn from_runtime_options(options: RuntimeOptions) -> Self {
+        let profile = options.speed_profile;
+        let cpu_available = CPUExecutionProvider::default().is_available().unwrap_or(true);
         match options.accelerator_mode {
             RuntimeAcceleratorMode::Auto => {
-                let xnn_available = XNNPACKExecutionProvider::default()
-                    .is_available()
-                    .unwrap_or(false);
-                let nnapi_available = NNAPIExecutionProvider::default().is_available().unwrap_or(false);
-                let cpu_available = CPUExecutionProvider::default().is_available().unwrap_or(true);
-
-                let providers = vec![
-                    XNNPACKExecutionProvider::default()
-                        .with_intra_op_num_threads(
-                            NonZeroUsize::new(XNNPACK_THREAD_COUNT).expect("non-zero constant"),
-                        )
-                        .build(),
-                    NNAPIExecutionProvider::default()
-                        .with_disable_cpu(true)
-                        .with_fp16(options.speed_profile.nnapi_use_fp16())
-                        .build(),
-                    CPUExecutionProvider::default().build(),
-                ];
-
+                let xnnpack = XNNPACKExecutionProvider::default().with_intra_op_num_threads(
+                    NonZeroUsize::new(XNNPACK_THREAD_COUNT).expect("non-zero constant"),
+                );
+                let nnapi = NNAPIExecutionProvider::default()
+                    .with_disable_cpu(true)
+                    .with_fp16(profile.nnapi_use_fp16());
                 let provider_summary = format!(
                     "mode=auto, profile={}, requested=[XNNPACK(available={},threads={}), NNAPI(available={},disable_cpu=true,fp16={}), CPU(available={})]",
-                    options.speed_profile.as_id(),
-                    xnn_available,
+                    profile.as_id(),
+                    xnnpack.is_available().unwrap_or(false),
                     XNNPACK_THREAD_COUNT,
-                    nnapi_available,
-                    options.speed_profile.nnapi_use_fp16(),
+                    nnapi.is_available().unwrap_or(false),
+                    profile.nnapi_use_fp16(),
                     cpu_available
                 );
 
+                // XNNPACK runs its own thread pool, so ORT's own pools stay at one thread.
                 Self {
-                    providers,
+                    providers: vec![
+                        xnnpack.build(),
+                        nnapi.build(),
+                        CPUExecutionProvider::default().build(),
+                    ],
                     provider_summary,
                     intra_threads: 1,
                     inter_threads: 1,
@@ -200,18 +188,14 @@ impl SessionRuntimePlan {
                 }
             }
             RuntimeAcceleratorMode::Cpu => {
-                let (intra_threads, inter_threads, parallel_execution) =
-                    options.speed_profile.cpu_threads();
-                let cpu_available = CPUExecutionProvider::default().is_available().unwrap_or(true);
-                let provider_summary = format!(
-                    "mode=cpu, profile={}, requested=[CPU(available={})]",
-                    options.speed_profile.as_id(),
-                    cpu_available
-                );
-
+                let (intra_threads, inter_threads, parallel_execution) = profile.cpu_threads();
                 Self {
                     providers: vec![CPUExecutionProvider::default().build()],
-                    provider_summary,
+                    provider_summary: format!(
+                        "mode=cpu, profile={}, requested=[CPU(available={})]",
+                        profile.as_id(),
+                        cpu_available
+                    ),
                     intra_threads,
                     inter_threads,
                     parallel_execution,
@@ -251,76 +235,42 @@ impl Default for GigaamConfig {
 }
 
 impl GigaamConfig {
+    /// Reads the few scalar keys the frontend needs; nesting and unknown keys are ignored.
     fn from_yaml(content: &str) -> Self {
-        let mut config = Self::default();
-
-        for raw_line in content.lines() {
-            let line = raw_line.split('#').next().unwrap_or("").trim();
-            if line.is_empty() {
-                continue;
-            }
-
-            if let Some(value) = line.strip_prefix("sample_rate:") {
-                if let Ok(parsed) = value.trim().parse::<usize>() {
-                    config.sample_rate = parsed;
-                }
-                continue;
-            }
-
-            if let Some(value) = line.strip_prefix("features:") {
-                if let Ok(parsed) = value.trim().parse::<usize>() {
-                    config.n_mels = parsed;
-                }
-                continue;
-            }
-
-            if let Some(value) = line.strip_prefix("win_length:") {
-                if let Ok(parsed) = value.trim().parse::<usize>() {
-                    config.win_length = parsed;
-                }
-                continue;
-            }
-
-            if let Some(value) = line.strip_prefix("hop_length:") {
-                if let Ok(parsed) = value.trim().parse::<usize>() {
-                    config.hop_length = parsed;
-                }
-                continue;
-            }
-
-            if let Some(value) = line.strip_prefix("n_fft:") {
-                if let Ok(parsed) = value.trim().parse::<usize>() {
-                    config.n_fft = parsed;
-                }
-                continue;
-            }
-
-            if let Some(value) = line.strip_prefix("center:") {
-                if let Ok(parsed) = value.trim().parse::<bool>() {
-                    config.center = parsed;
-                }
-                continue;
-            }
-
-            if let Some(value) = line.strip_prefix("mel_scale:") {
-                config.mel_scale = value.trim().to_string();
-                continue;
-            }
-
-            if let Some(value) = line.strip_prefix("subsampling_factor:") {
-                if let Ok(parsed) = value.trim().parse::<usize>() {
-                    config.subsampling_factor = parsed;
-                }
-                continue;
-            }
-
-            if let Some(value) = line.strip_prefix("model_name:") {
-                config.model_name = value.trim().to_string();
+        fn parse_into<T: std::str::FromStr>(target: &mut T, value: &str) {
+            if let Ok(parsed) = value.parse() {
+                *target = parsed;
             }
         }
 
+        let mut config = Self::default();
+        for raw_line in content.lines() {
+            let line = raw_line.split('#').next().unwrap_or("").trim();
+            let Some((key, value)) = line.split_once(':') else {
+                continue;
+            };
+            let value = value.trim();
+            match key {
+                "sample_rate" => parse_into(&mut config.sample_rate, value),
+                "features" => parse_into(&mut config.n_mels, value),
+                "win_length" => parse_into(&mut config.win_length, value),
+                "hop_length" => parse_into(&mut config.hop_length, value),
+                "n_fft" => parse_into(&mut config.n_fft, value),
+                "center" => parse_into(&mut config.center, value),
+                "mel_scale" => config.mel_scale = value.to_string(),
+                "subsampling_factor" => parse_into(&mut config.subsampling_factor, value),
+                "model_name" => config.model_name = value.to_string(),
+                _ => {}
+            }
+        }
         config
     }
+}
+
+/// One triangular mel filter, stored only over the FFT bins where its weight is non-zero.
+struct MelFilter {
+    first_bin: usize,
+    weights: Vec<f32>,
 }
 
 struct GigaamFrontend {
@@ -328,77 +278,61 @@ struct GigaamFrontend {
     win_length: usize,
     hop_length: usize,
     n_fft: usize,
-    center: bool,
     hann_window: Vec<f32>,
-    mel_filterbank: Vec<f32>, // [n_freq_bins, n_mels]
+    mel_filters: Vec<MelFilter>,
     fft: Arc<dyn Fft<f32>>,
 }
 
 impl GigaamFrontend {
     fn from_config(config: &GigaamConfig) -> Result<Self> {
         if config.hop_length == 0 {
-            return Err(anyhow::anyhow!("Invalid GigaAM config: hop_length must be > 0"));
+            bail!("Invalid GigaAM config: hop_length must be > 0");
         }
         if config.win_length == 0 {
-            return Err(anyhow::anyhow!("Invalid GigaAM config: win_length must be > 0"));
+            bail!("Invalid GigaAM config: win_length must be > 0");
         }
         if config.n_fft == 0 {
-            return Err(anyhow::anyhow!("Invalid GigaAM config: n_fft must be > 0"));
+            bail!("Invalid GigaAM config: n_fft must be > 0");
         }
         if config.n_fft < config.win_length {
-            return Err(anyhow::anyhow!(
+            bail!(
                 "Invalid GigaAM config: n_fft ({}) < win_length ({})",
                 config.n_fft,
                 config.win_length
-            ));
+            );
         }
         if !config.mel_scale.eq_ignore_ascii_case("htk") {
-            return Err(anyhow::anyhow!(
+            bail!(
                 "Unsupported GigaAM mel_scale '{}'; expected 'htk'",
                 config.mel_scale
-            ));
+            );
         }
         if config.center {
-            return Err(anyhow::anyhow!(
-                "Unsupported GigaAM config: center=true is not supported for this model"
-            ));
+            bail!("Unsupported GigaAM config: center=true is not supported for this model");
         }
 
-        let quantize_bf16 = config.model_name.contains("v3") || (!config.center && config.n_fft == 320);
+        let quantize_bf16 = config.model_name.contains("v3") || config.n_fft == 320;
         let hann_window = build_hann_window(config.win_length, quantize_bf16);
-        let mel_filterbank = build_mel_filterbank(
+        let mel_filters = build_mel_filters(
             config.sample_rate,
             config.n_fft,
             config.n_mels,
             quantize_bf16,
         )?;
-
-        let mut planner = FftPlanner::<f32>::new();
-        let fft = planner.plan_fft_forward(config.n_fft);
+        let fft = FftPlanner::<f32>::new().plan_fft_forward(config.n_fft);
 
         Ok(Self {
             n_mels: config.n_mels,
             win_length: config.win_length,
             hop_length: config.hop_length,
             n_fft: config.n_fft,
-            center: config.center,
             hann_window,
-            mel_filterbank,
+            mel_filters,
             fft,
         })
     }
 
     fn extract_features(&self, samples: &[f32]) -> Result<(Array3<f32>, i64)> {
-        if samples.is_empty() {
-            return Ok((Array3::zeros((1, self.n_mels, 0)), 0));
-        }
-
-        if self.center {
-            return Err(anyhow::anyhow!(
-                "Unsupported GigaAM preprocessor configuration: center=true"
-            ));
-        }
-
         if samples.len() < self.win_length {
             return Ok((Array3::zeros((1, self.n_mels, 0)), 0));
         }
@@ -408,31 +342,27 @@ impl GigaamFrontend {
 
         let mut features = vec![0.0_f32; self.n_mels * frame_count];
         let mut fft_buffer = vec![Complex32::new(0.0, 0.0); self.n_fft];
+        let mut fft_scratch = vec![Complex32::new(0.0, 0.0); self.fft.get_inplace_scratch_len()];
         let mut power_spectrum = vec![0.0_f32; n_freq_bins];
 
         for frame_idx in 0..frame_count {
-            let start = frame_idx * self.hop_length;
-
-            for i in 0..self.n_fft {
-                let sample = if i < self.win_length {
-                    samples[start + i] * self.hann_window[i]
-                } else {
-                    0.0
-                };
-                fft_buffer[i] = Complex32::new(sample, 0.0);
+            let frame = &samples[frame_idx * self.hop_length..][..self.win_length];
+            for ((slot, &sample), &window) in fft_buffer.iter_mut().zip(frame).zip(&self.hann_window) {
+                *slot = Complex32::new(sample * window, 0.0);
             }
+            fft_buffer[self.win_length..].fill(Complex32::new(0.0, 0.0));
 
-            self.fft.process(&mut fft_buffer);
+            self.fft.process_with_scratch(&mut fft_buffer, &mut fft_scratch);
 
-            for (bin_idx, power) in power_spectrum.iter_mut().enumerate() {
-                let complex = fft_buffer[bin_idx];
+            for (power, complex) in power_spectrum.iter_mut().zip(&fft_buffer) {
                 *power = complex.re.mul_add(complex.re, complex.im * complex.im);
             }
 
-            for mel_idx in 0..self.n_mels {
+            for (mel_idx, filter) in self.mel_filters.iter().enumerate() {
+                let bins = &power_spectrum[filter.first_bin..][..filter.weights.len()];
                 let mut mel_energy = 0.0_f32;
-                for (bin_idx, &power) in power_spectrum.iter().enumerate() {
-                    mel_energy += power * self.mel_filterbank[bin_idx * self.n_mels + mel_idx];
+                for (&power, &weight) in bins.iter().zip(&filter.weights) {
+                    mel_energy += power * weight;
                 }
                 let clamped = mel_energy.clamp(MEL_MIN_CLAMP, MEL_MAX_CLAMP);
                 features[mel_idx * frame_count + frame_idx] = clamped.ln();
@@ -444,7 +374,7 @@ impl GigaamFrontend {
     }
 }
 
-struct GigaamModel {
+pub struct GigaamModel {
     session: Session,
     frontend: GigaamFrontend,
     vocab: Vec<String>,
@@ -457,48 +387,26 @@ struct GigaamModel {
 }
 
 impl GigaamModel {
-    fn new(model_dir: &Path, runtime_options: RuntimeOptions) -> Result<Self> {
+    pub fn load(model_dir: &Path, runtime_options: RuntimeOptions) -> Result<Self> {
         let model_path = MODEL_FILENAMES
             .iter()
             .map(|filename| model_dir.join(filename))
             .find(|path| path.exists())
             .ok_or_else(|| {
-                anyhow::anyhow!(
+                anyhow!(
                     "Missing GigaAM model file in {}. Expected one of: {}",
                     model_dir.display(),
                     MODEL_FILENAMES.join(", ")
                 )
             })?;
-        let vocab_path = model_dir.join(VOCAB_FILENAME);
-        let config_path = model_dir.join(CONFIG_FILENAME);
-
-        if !vocab_path.exists() {
-            return Err(anyhow::anyhow!(
-                "Missing GigaAM vocab file: {}",
-                vocab_path.display()
-            ));
-        }
-        if !config_path.exists() {
-            return Err(anyhow::anyhow!(
-                "Missing GigaAM config file: {}",
-                config_path.display()
-            ));
-        }
-
-        let vocab_content = fs::read_to_string(&vocab_path).with_context(|| {
-            format!("Failed to read GigaAM vocab file: {}", vocab_path.display())
-        })?;
+        let vocab_content = read_model_file(&model_dir.join(VOCAB_FILENAME), "vocab")?;
         let (vocab, blank_idx) = parse_vocab_content(&vocab_content)?;
-
-        let config_content = fs::read_to_string(&config_path).with_context(|| {
-            format!("Failed to read GigaAM config file: {}", config_path.display())
-        })?;
-        let config = GigaamConfig::from_yaml(&config_content);
+        let config = GigaamConfig::from_yaml(&read_model_file(&model_dir.join(CONFIG_FILENAME), "config")?);
         if config.sample_rate != 16_000 {
-            return Err(anyhow::anyhow!(
-                "Unsupported GigaAM sample rate {} Hz; Handy currently provides 16000 Hz PCM input",
+            bail!(
+                "Unsupported GigaAM sample rate {} Hz; the IME provides 16000 Hz PCM input",
                 config.sample_rate
-            ));
+            );
         }
         let frontend = GigaamFrontend::from_config(&config)?;
 
@@ -514,64 +422,30 @@ impl GigaamModel {
                 format!("Failed to initialize ONNX Runtime session: {}", model_path.display())
             })?;
 
-        log::info!(
-            "GigaAM runtime plan: {}, intra_threads={}, inter_threads={}, parallel_execution={}",
-            runtime_plan.provider_summary,
-            runtime_plan.intra_threads,
-            runtime_plan.inter_threads,
-            runtime_plan.parallel_execution
-        );
-
-        for input in &session.inputs {
-            log::info!(
-                "GigaAM input: name={}, type={:?}",
-                input.name,
-                input.input_type
-            );
-        }
-        for output in &session.outputs {
-            log::info!("GigaAM output: name={}", output.name);
-        }
-
-        let features_input_name = session
-            .inputs
-            .iter()
-            .find(|input| input.name == "features")
-            .or_else(|| {
-                session.inputs.iter().find(|input| {
-                    input
-                        .input_type
-                        .tensor_shape()
-                        .map(|shape| shape.len() == 3)
-                        .unwrap_or(false)
+        // Prefer the known tensor names; fall back to the first input of the expected rank.
+        let find_input = |name: &str, rank: usize| {
+            session
+                .inputs
+                .iter()
+                .find(|input| input.name == name)
+                .or_else(|| {
+                    session.inputs.iter().find(|input| {
+                        input.input_type.tensor_shape().is_some_and(|shape| shape.len() == rank)
+                    })
                 })
-            })
-            .map(|input| input.name.clone())
-            .ok_or_else(|| anyhow::anyhow!("Failed to determine GigaAM features input"))?;
-
-        let feature_lengths_input_name = session
-            .inputs
-            .iter()
-            .find(|input| input.name == "feature_lengths")
-            .or_else(|| {
-                session.inputs.iter().find(|input| {
-                    input
-                        .input_type
-                        .tensor_shape()
-                        .map(|shape| shape.len() == 1)
-                        .unwrap_or(false)
-                })
-            })
-            .map(|input| input.name.clone())
-            .ok_or_else(|| anyhow::anyhow!("Failed to determine GigaAM feature lengths input"))?;
-
+                .map(|input| input.name.clone())
+        };
+        let features_input_name = find_input("features", 3)
+            .ok_or_else(|| anyhow!("Failed to determine GigaAM features input"))?;
+        let feature_lengths_input_name = find_input("feature_lengths", 1)
+            .ok_or_else(|| anyhow!("Failed to determine GigaAM feature lengths input"))?;
         let logits_output_name = session
             .outputs
             .iter()
             .find(|output| output.name == "log_probs" || output.name == "logits")
             .or_else(|| session.outputs.first())
             .map(|output| output.name.clone())
-            .ok_or_else(|| anyhow::anyhow!("Failed to determine GigaAM logits output"))?;
+            .ok_or_else(|| anyhow!("Failed to determine GigaAM logits output"))?;
 
         Ok(Self {
             session,
@@ -586,96 +460,61 @@ impl GigaamModel {
         })
     }
 
-    fn transcribe_samples(&mut self, samples: &[f32]) -> Result<NativeTranscriptionReport> {
+    pub fn transcribe_samples(&mut self, samples: &[f32]) -> Result<NativeTranscriptionReport> {
         let total_start = Instant::now();
+        let mut timings = NativeTranscriptionTimings::default();
 
         let feature_start = Instant::now();
         let (features, feature_length) = self.frontend.extract_features(samples)?;
-        let feature_extraction_ms = feature_start.elapsed().as_millis();
-        if feature_length == 0 {
-            return Ok(NativeTranscriptionReport {
-                text: String::new(),
-                timings: NativeTranscriptionTimings {
-                    feature_extraction_ms,
-                    ort_run_ms: 0,
-                    decode_ms: 0,
-                    total_ms: total_start.elapsed().as_millis(),
-                },
-                provider_summary: self.provider_summary.clone(),
-            });
-        }
+        timings.feature_extraction_ms = feature_start.elapsed().as_millis();
 
-        let feature_lengths = Array1::from_vec(vec![feature_length]);
-        let inputs = inputs![
-            self.features_input_name.as_str() => TensorRef::from_array_view(features.view())?,
-            self.feature_lengths_input_name.as_str() => TensorRef::from_array_view(feature_lengths.view())?,
-        ];
+        let text = if feature_length == 0 {
+            String::new()
+        } else {
+            let feature_lengths = Array1::from_vec(vec![feature_length]);
+            let inputs = inputs![
+                self.features_input_name.as_str() => TensorRef::from_array_view(features.view())?,
+                self.feature_lengths_input_name.as_str() => TensorRef::from_array_view(feature_lengths.view())?,
+            ];
 
-        let ort_start = Instant::now();
-        let outputs = self.session.run(inputs)?;
-        let ort_run_ms = ort_start.elapsed().as_millis();
+            let ort_start = Instant::now();
+            let outputs = self.session.run(inputs)?;
+            timings.ort_run_ms = ort_start.elapsed().as_millis();
 
-        let decode_start = Instant::now();
-        let logits = outputs
-            .get(self.logits_output_name.as_str())
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "GigaAM output '{}' not found in inference outputs",
-                    self.logits_output_name
-                )
-            })?
-            .try_extract_array::<f32>()?
-            .to_owned()
-            .into_dimensionality::<Ix3>()?;
+            let decode_start = Instant::now();
+            let logits = outputs
+                .get(self.logits_output_name.as_str())
+                .ok_or_else(|| {
+                    anyhow!(
+                        "GigaAM output '{}' not found in inference outputs",
+                        self.logits_output_name
+                    )
+                })?
+                .try_extract_array::<f32>()?
+                .into_dimensionality::<Ix3>()?;
 
-        let encoded_len = ((feature_length - 1) / self.subsampling_factor as i64 + 1).max(0) as usize;
-        let token_ids = ctc_greedy_decode_ids(logits.view(), encoded_len, self.blank_idx);
-        let text = decode_token_ids_to_text(&token_ids, &self.vocab);
-        let decode_ms = decode_start.elapsed().as_millis();
+            let encoded_len = ((feature_length - 1) / self.subsampling_factor as i64 + 1).max(0) as usize;
+            let token_ids = ctc_greedy_decode_ids(logits, encoded_len, self.blank_idx);
+            let text = decode_token_ids_to_text(&token_ids, &self.vocab);
+            timings.decode_ms = decode_start.elapsed().as_millis();
+            text
+        };
 
+        timings.total_ms = total_start.elapsed().as_millis();
         Ok(NativeTranscriptionReport {
             text,
-            timings: NativeTranscriptionTimings {
-                feature_extraction_ms,
-                ort_run_ms,
-                decode_ms,
-                total_ms: total_start.elapsed().as_millis(),
-            },
+            timings,
             provider_summary: self.provider_summary.clone(),
         })
     }
 }
 
-#[derive(Default)]
-pub struct GigaamEngine {
-    loaded_model_path: Option<PathBuf>,
-    model: Option<GigaamModel>,
-}
-
-impl GigaamEngine {
-    pub fn new() -> Self {
-        Self::default()
+fn read_model_file(path: &Path, kind: &str) -> Result<String> {
+    if !path.exists() {
+        bail!("Missing GigaAM {kind} file: {}", path.display());
     }
-
-    pub fn load_model(&mut self, model_path: &Path, runtime_options: RuntimeOptions) -> Result<()> {
-        let model = GigaamModel::new(model_path, runtime_options)?;
-        self.model = Some(model);
-        self.loaded_model_path = Some(model_path.to_path_buf());
-        Ok(())
-    }
-
-    pub fn unload_model(&mut self) {
-        self.loaded_model_path = None;
-        self.model = None;
-    }
-
-    pub fn transcribe_samples(&mut self, samples: &[f32]) -> Result<NativeTranscriptionReport> {
-        let model = self
-            .model
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("GigaAM model is not loaded"))?;
-        model.transcribe_samples(samples)
-    }
+    fs::read_to_string(path)
+        .with_context(|| format!("Failed to read GigaAM {kind} file: {}", path.display()))
 }
 
 fn parse_vocab_content(content: &str) -> Result<(Vec<String>, usize)> {
@@ -690,7 +529,7 @@ fn parse_vocab_content(content: &str) -> Result<(Vec<String>, usize)> {
         }
         let (token, id_str) = line
             .rsplit_once(' ')
-            .ok_or_else(|| anyhow::anyhow!("Invalid vocab line: '{}'", line))?;
+            .ok_or_else(|| anyhow!("Invalid vocab line: '{}'", line))?;
         let id = id_str
             .trim()
             .parse::<usize>()
@@ -704,8 +543,7 @@ fn parse_vocab_content(content: &str) -> Result<(Vec<String>, usize)> {
         entries.push((id, token.replace('\u{2581}', " ")));
     }
 
-    let blank_idx =
-        blank_idx.ok_or_else(|| anyhow::anyhow!("Missing <blk> token in vocabulary file"))?;
+    let blank_idx = blank_idx.ok_or_else(|| anyhow!("Missing <blk> token in vocabulary file"))?;
 
     let mut vocab = vec![String::new(); max_id + 1];
     for (id, token) in entries {
@@ -720,20 +558,18 @@ fn ctc_greedy_decode_ids(
     encoded_len: usize,
     blank_idx: usize,
 ) -> Vec<usize> {
-    let time_steps = logits.shape()[1];
-    let usable_steps = encoded_len.min(time_steps);
+    let usable_steps = encoded_len.min(logits.shape()[1]);
 
     let mut token_ids = Vec::with_capacity(usable_steps);
     let mut prev_token = blank_idx;
 
     for frame_idx in 0..usable_steps {
-        let frame = logits.slice(s![0, frame_idx, ..]);
-        let best_idx = frame
+        let best_idx = logits
+            .slice(s![0, frame_idx, ..])
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
-            .map(|(idx, _)| idx)
-            .unwrap_or(blank_idx);
+            .map_or(blank_idx, |(idx, _)| idx);
 
         if best_idx != blank_idx && best_idx != prev_token {
             token_ids.push(best_idx);
@@ -745,14 +581,12 @@ fn ctc_greedy_decode_ids(
 }
 
 fn decode_token_ids_to_text(token_ids: &[usize], vocab: &[String]) -> String {
-    let concatenated = token_ids
+    let concatenated: String = token_ids
         .iter()
-        .filter_map(|&id| vocab.get(id))
-        .fold(String::new(), |mut text, token| {
-            text.push_str(token);
-            text
-        });
+        .filter_map(|&id| vocab.get(id).map(String::as_str))
+        .collect();
 
+    // Drop leading spaces and spaces before non-word characters; keep one space before words.
     DECODE_SPACE_RE
         .replace_all(&concatenated, |captures: &regex::Captures<'_>| {
             if captures.get(1).is_some() {
@@ -761,7 +595,7 @@ fn decode_token_ids_to_text(token_ids: &[usize], vocab: &[String]) -> String {
                 ""
             }
         })
-        .to_string()
+        .into_owned()
 }
 
 fn build_hann_window(win_length: usize, quantize_bf16: bool) -> Vec<f32> {
@@ -781,61 +615,61 @@ fn build_hann_window(win_length: usize, quantize_bf16: bool) -> Vec<f32> {
         .collect()
 }
 
-fn build_mel_filterbank(
+fn build_mel_filters(
     sample_rate: usize,
     n_fft: usize,
     n_mels: usize,
     quantize_bf16: bool,
-) -> Result<Vec<f32>> {
+) -> Result<Vec<MelFilter>> {
     let n_freq_bins = n_fft / 2 + 1;
-    let f_min = 0.0_f32;
-    let f_max = (sample_rate as f32) / 2.0;
+    let mel_min = hz_to_mel_htk(0.0);
+    let mel_max = hz_to_mel_htk(sample_rate as f32 / 2.0);
 
-    let mel_min = hz_to_mel_htk(f_min);
-    let mel_max = hz_to_mel_htk(f_max);
-
-    let mel_points: Vec<f32> = (0..(n_mels + 2))
-        .map(|i| mel_min + (mel_max - mel_min) * (i as f32 / (n_mels + 1) as f32))
+    let hz_points: Vec<f32> = (0..(n_mels + 2))
+        .map(|i| mel_to_hz_htk(mel_min + (mel_max - mel_min) * (i as f32 / (n_mels + 1) as f32)))
         .collect();
-    let hz_points: Vec<f32> = mel_points.into_iter().map(mel_to_hz_htk).collect();
     let fft_freqs: Vec<f32> = (0..n_freq_bins)
         .map(|bin| bin as f32 * sample_rate as f32 / n_fft as f32)
         .collect();
 
-    let mut filterbank = vec![0.0_f32; n_freq_bins * n_mels];
-
-    for mel_idx in 0..n_mels {
-        let left = hz_points[mel_idx];
-        let center = hz_points[mel_idx + 1];
-        let right = hz_points[mel_idx + 2];
-
-        if center <= left || right <= center {
-            return Err(anyhow::anyhow!(
-                "Invalid mel filter points for index {}",
-                mel_idx
-            ));
-        }
-
-        for (bin_idx, &freq) in fft_freqs.iter().enumerate() {
-            let weight = if freq >= left && freq <= center {
-                (freq - left) / (center - left)
-            } else if freq > center && freq <= right {
-                (right - freq) / (right - center)
-            } else {
-                0.0
-            };
-
-            if weight > 0.0 {
-                filterbank[bin_idx * n_mels + mel_idx] = if quantize_bf16 {
-                    quantize_to_bf16(weight)
-                } else {
-                    weight
-                };
+    (0..n_mels)
+        .map(|mel_idx| {
+            let left = hz_points[mel_idx];
+            let center = hz_points[mel_idx + 1];
+            let right = hz_points[mel_idx + 2];
+            if center <= left || right <= center {
+                bail!("Invalid mel filter points for index {}", mel_idx);
             }
-        }
-    }
 
-    Ok(filterbank)
+            let row: Vec<f32> = fft_freqs
+                .iter()
+                .map(|&freq| {
+                    let weight = if freq >= left && freq <= center {
+                        (freq - left) / (center - left)
+                    } else if freq > center && freq <= right {
+                        (right - freq) / (right - center)
+                    } else {
+                        0.0
+                    };
+                    if weight <= 0.0 {
+                        0.0
+                    } else if quantize_bf16 {
+                        quantize_to_bf16(weight)
+                    } else {
+                        weight
+                    }
+                })
+                .collect();
+
+            // Zero weights add nothing to the sum, so only the non-zero span is kept.
+            let first_bin = row.iter().position(|&w| w != 0.0).unwrap_or(0);
+            let end_bin = row.iter().rposition(|&w| w != 0.0).map_or(first_bin, |last| last + 1);
+            Ok(MelFilter {
+                first_bin,
+                weights: row[first_bin..end_bin].to_vec(),
+            })
+        })
+        .collect()
 }
 
 #[inline]
@@ -892,6 +726,128 @@ mod tests {
     }
 
     #[test]
+    fn decoder_normalizes_spaces_around_punctuation() {
+        let vocab: Vec<String> = [" при", "вет", ",", " мир", " ."]
+            .iter()
+            .map(|token| token.to_string())
+            .collect();
+        assert_eq!(decode_token_ids_to_text(&[0, 1, 2, 3, 4], &vocab), "привет, мир.");
+    }
+
+    #[test]
+    fn config_parser_reads_nested_keys_and_ignores_comments() {
+        let config = GigaamConfig::from_yaml(
+            "model_name: v3_e2e_ctc\npreprocessor:\n  sample_rate: 16000 # Hz\n  features: 64\n  \
+             win_length: 320\n  hop_length: 160\n  n_fft: 320\n  center: false\n  mel_scale: htk\n\
+             encoder:\n  subsampling_factor: 4\n  n_fft_typo: 999\n",
+        );
+        assert_eq!(config.sample_rate, 16_000);
+        assert_eq!(config.n_mels, 64);
+        assert_eq!(config.n_fft, 320);
+        assert!(!config.center);
+        assert_eq!(config.mel_scale, "htk");
+        assert_eq!(config.subsampling_factor, 4);
+    }
+
+    #[test]
+    fn sparse_mel_filters_match_dense_triangles() -> Result<()> {
+        let filters = build_mel_filters(16_000, 320, 64, true)?;
+        assert_eq!(filters.len(), 64);
+        for filter in &filters {
+            assert!(!filter.weights.is_empty());
+            assert!(filter.first_bin + filter.weights.len() <= 161);
+            assert!(filter.weights.iter().all(|&w| w > 0.0));
+        }
+        Ok(())
+    }
+
+    /// The pre-refactor dense frontend (full filterbank matrix, allocating FFT), kept verbatim
+    /// so the sparse frontend can be checked bit for bit.
+    fn dense_reference_features(config: &GigaamConfig, samples: &[f32]) -> Vec<f32> {
+        let n_freq_bins = config.n_fft / 2 + 1;
+        let n_mels = config.n_mels;
+        let hann_window = build_hann_window(config.win_length, true);
+        let mel_min = hz_to_mel_htk(0.0);
+        let mel_max = hz_to_mel_htk(config.sample_rate as f32 / 2.0);
+        let hz_points: Vec<f32> = (0..(n_mels + 2))
+            .map(|i| mel_to_hz_htk(mel_min + (mel_max - mel_min) * (i as f32 / (n_mels + 1) as f32)))
+            .collect();
+        let mut filterbank = vec![0.0_f32; n_freq_bins * n_mels];
+        for mel_idx in 0..n_mels {
+            let (left, center, right) = (hz_points[mel_idx], hz_points[mel_idx + 1], hz_points[mel_idx + 2]);
+            for bin_idx in 0..n_freq_bins {
+                let freq = bin_idx as f32 * config.sample_rate as f32 / config.n_fft as f32;
+                let weight = if freq >= left && freq <= center {
+                    (freq - left) / (center - left)
+                } else if freq > center && freq <= right {
+                    (right - freq) / (right - center)
+                } else {
+                    0.0
+                };
+                if weight > 0.0 {
+                    filterbank[bin_idx * n_mels + mel_idx] = quantize_to_bf16(weight);
+                }
+            }
+        }
+
+        let fft = FftPlanner::<f32>::new().plan_fft_forward(config.n_fft);
+        let frame_count = (samples.len() - config.win_length) / config.hop_length + 1;
+        let mut features = vec![0.0_f32; n_mels * frame_count];
+        let mut buffer = vec![Complex32::new(0.0, 0.0); config.n_fft];
+        let mut power_spectrum = vec![0.0_f32; n_freq_bins];
+        for frame_idx in 0..frame_count {
+            let start = frame_idx * config.hop_length;
+            for i in 0..config.n_fft {
+                let sample = if i < config.win_length { samples[start + i] * hann_window[i] } else { 0.0 };
+                buffer[i] = Complex32::new(sample, 0.0);
+            }
+            fft.process(&mut buffer);
+            for (bin_idx, power) in power_spectrum.iter_mut().enumerate() {
+                let c = buffer[bin_idx];
+                *power = c.re.mul_add(c.re, c.im * c.im);
+            }
+            for mel_idx in 0..n_mels {
+                let mut mel_energy = 0.0_f32;
+                for (bin_idx, &power) in power_spectrum.iter().enumerate() {
+                    mel_energy += power * filterbank[bin_idx * n_mels + mel_idx];
+                }
+                features[mel_idx * frame_count + frame_idx] =
+                    mel_energy.clamp(MEL_MIN_CLAMP, MEL_MAX_CLAMP).ln();
+            }
+        }
+        features
+    }
+
+    #[test]
+    fn sparse_frontend_matches_dense_reference_bit_for_bit() -> Result<()> {
+        let config = GigaamConfig::default();
+        let frontend = GigaamFrontend::from_config(&config)?;
+        // 1.3 s of a tone plus deterministic noise, quantized like 16-bit PCM input.
+        let mut state = 0x2545_f491_u32;
+        let samples: Vec<f32> = (0..20_800)
+            .map(|n| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                let noise = (state as f32 / u32::MAX as f32) * 2.0 - 1.0;
+                let value = 0.4 * (2.0 * PI * 440.0 * n as f32 / 16_000.0).sin() + 0.1 * noise;
+                (value * i16::MAX as f32).round() / i16::MAX as f32
+            })
+            .collect();
+
+        let (features, frame_count) = frontend.extract_features(&samples)?;
+        let reference = dense_reference_features(&config, &samples);
+        assert_eq!(frame_count as usize * config.n_mels, reference.len());
+        let mismatches = features
+            .iter()
+            .zip(&reference)
+            .filter(|(a, b)| a.to_bits() != b.to_bits())
+            .count();
+        assert_eq!(mismatches, 0, "sparse and dense features differ in {mismatches} values");
+        Ok(())
+    }
+
+    #[test]
     #[ignore = "Requires local model files and a WAV fixture; set GIGAAM_TEST_MODEL_DIR and GIGAAM_TEST_WAV_PATH"]
     fn integration_transcribes_wav_fixture() -> Result<()> {
         let model_dir = std::env::var("GIGAAM_TEST_MODEL_DIR")
@@ -900,12 +856,13 @@ mod tests {
             .context("GIGAAM_TEST_WAV_PATH is required for integration test")?;
         let expected_substring = std::env::var("GIGAAM_TEST_EXPECT_CONTAINS").unwrap_or_default();
 
-        let mut engine = GigaamEngine::new();
-        engine.load_model(Path::new(&model_dir), RuntimeOptions::default())?;
-
+        let mut model = GigaamModel::load(Path::new(&model_dir), RuntimeOptions::default())?;
         let samples = read_wav_mono_f32(Path::new(&wav_path))?;
-        let report = engine.transcribe_samples(&samples)?;
-        let text = report.text;
+        for run in 1..=3 {
+            let report = model.transcribe_samples(&samples)?;
+            eprintln!("run {run}: {{{}}} text={:?}", report.json_fields(), report.text);
+        }
+        let text = model.transcribe_samples(&samples)?.text;
         assert!(
             !text.trim().is_empty(),
             "Expected non-empty transcription result"
@@ -927,30 +884,20 @@ mod tests {
         let spec = reader.spec();
         let channels = usize::from(spec.channels.max(1));
 
-        let mut interleaved = Vec::<f32>::new();
-        match spec.sample_format {
-            hound::SampleFormat::Float => {
-                for sample in reader.samples::<f32>() {
-                    interleaved.push(sample?);
-                }
-            }
+        let interleaved: Vec<f32> = match spec.sample_format {
+            hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<_, _>>()?,
             hound::SampleFormat::Int => {
                 let max_amplitude = (1_i64 << (spec.bits_per_sample.saturating_sub(1))) as f32;
-                for sample in reader.samples::<i32>() {
-                    interleaved.push(sample? as f32 / max_amplitude);
-                }
+                reader
+                    .samples::<i32>()
+                    .map(|sample| sample.map(|value| value as f32 / max_amplitude))
+                    .collect::<Result<_, _>>()?
             }
-        }
+        };
 
-        if channels == 1 {
-            return Ok(interleaved);
-        }
-
-        let mut mono = Vec::with_capacity(interleaved.len() / channels);
-        for frame in interleaved.chunks(channels) {
-            let sum: f32 = frame.iter().copied().sum();
-            mono.push(sum / channels as f32);
-        }
-        Ok(mono)
+        Ok(interleaved
+            .chunks(channels)
+            .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+            .collect())
     }
 }

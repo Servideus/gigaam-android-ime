@@ -2,8 +2,6 @@ package com.servideus.gigaamime.data
 
 import android.content.Context
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
@@ -26,135 +24,109 @@ class ModelRepository(context: Context) {
         File(appContext.filesDir, "models").apply { mkdirs() }
     }
 
-    fun getModelDir(model: GigaamModel): File {
-        return File(modelsRootDir, model.directoryName)
-    }
+    fun getModelDir(model: GigaamModel): File = File(modelsRootDir, model.id)
 
     fun isModelDownloaded(model: GigaamModel): Boolean {
         val modelDir = getModelDir(model)
-        if (!modelDir.exists() || !modelDir.isDirectory) {
-            return false
-        }
-        return model.artifacts.all { artifact ->
-            File(modelDir, artifact.fileName).isFile
-        }
+        return model.artifacts.all { artifact -> File(modelDir, artifact.fileName).isFile }
     }
 
     suspend fun deleteModel(model: GigaamModel) = withContext(Dispatchers.IO) {
         getModelDir(model).deleteRecursively()
     }
 
+    /** Reports progress at most once per 0.1% so the UI thread is not flooded with updates. */
     suspend fun downloadModel(
         model: GigaamModel,
         onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit,
     ) = withContext(Dispatchers.IO) {
         val modelDir = getModelDir(model)
-        if (modelDir.exists()) {
-            modelDir.deleteRecursively()
-        }
-        if (!modelDir.mkdirs() && !modelDir.exists()) {
+        modelDir.deleteRecursively()
+        if (!modelDir.mkdirs() && !modelDir.isDirectory) {
             throw IOException("Failed to create model directory: ${modelDir.absolutePath}")
         }
 
-        var downloadedTotal = 0L
-        onProgress(0L, model.totalBytes)
-
-        for (artifact in model.artifacts) {
-            val targetFile = File(modelDir, artifact.fileName)
-            downloadArtifact(artifact, targetFile) { currentBytes ->
-                onProgress(downloadedTotal + currentBytes, model.totalBytes)
+        val totalBytes = model.totalBytes
+        var lastReportedPermille = -1L
+        fun reportProgress(downloadedBytes: Long) {
+            val permille = downloadedBytes * 1000L / totalBytes.coerceAtLeast(1L)
+            if (permille != lastReportedPermille) {
+                lastReportedPermille = permille
+                onProgress(downloadedBytes, totalBytes)
             }
-            validateArtifact(targetFile, artifact)
-            downloadedTotal += artifact.sizeBytes
-            onProgress(downloadedTotal, model.totalBytes)
+        }
+
+        var completedBytes = 0L
+        reportProgress(0L)
+        for (artifact in model.artifacts) {
+            downloadArtifact(artifact, File(modelDir, artifact.fileName)) { artifactBytes ->
+                reportProgress(completedBytes + artifactBytes)
+            }
+            completedBytes += artifact.sizeBytes
+            reportProgress(completedBytes)
         }
     }
 
+    /**
+     * Streams the file to a `.part` file while hashing it, and moves it into place only after
+     * the size and SHA-256 match. A failed download never leaves a file under the final name.
+     */
     private fun downloadArtifact(
         artifact: ModelArtifact,
         targetFile: File,
         onProgress: (downloadedBytes: Long) -> Unit,
     ) {
         val tempFile = File(targetFile.parentFile, "${targetFile.name}.part")
-        if (tempFile.exists()) {
-            tempFile.delete()
-        }
-
         val request = Request.Builder()
             .url(artifact.url)
             .header("User-Agent", "GigaAM-IME/0.1 (Android)")
             .header("Accept", "*/*")
-            .get()
             .build()
 
         try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            var totalRead = 0L
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     throw IOException("Download failed for ${artifact.fileName}: HTTP ${response.code}")
                 }
-                val responseBody = response.body ?: throw IOException("Empty response body for ${artifact.fileName}")
-                FileOutputStream(tempFile).use { outputStream ->
-                    responseBody.byteStream().use { inputStream ->
-                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                        var totalRead = 0L
+                val body = response.body ?: throw IOException("Empty response body for ${artifact.fileName}")
+                body.byteStream().use { input ->
+                    tempFile.outputStream().use { output ->
+                        val buffer = ByteArray(DOWNLOAD_BUFFER_BYTES)
                         while (true) {
-                            val read = inputStream.read(buffer)
-                            if (read < 0) {
-                                break
-                            }
-                            if (read == 0) {
-                                continue
-                            }
-                            outputStream.write(buffer, 0, read)
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            output.write(buffer, 0, read)
+                            digest.update(buffer, 0, read)
                             totalRead += read
                             onProgress(totalRead)
                         }
-                        if (totalRead == 0L) {
-                            throw IOException("Downloaded 0 bytes for ${artifact.fileName}")
-                        }
                     }
                 }
+            }
+
+            if (totalRead != artifact.sizeBytes) {
+                throw IOException(
+                    "Size mismatch for ${artifact.fileName}: expected ${artifact.sizeBytes}, got $totalRead",
+                )
+            }
+            val actualSha = digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
+            if (!actualSha.equals(artifact.sha256, ignoreCase = true)) {
+                throw IOException(
+                    "SHA-256 mismatch for ${artifact.fileName}: expected ${artifact.sha256}, got $actualSha",
+                )
+            }
+            if (!tempFile.renameTo(targetFile)) {
+                throw IOException("Failed to move ${artifact.fileName} into the model directory")
             }
         } catch (error: Exception) {
             tempFile.delete()
             throw error
         }
-
-        if (!tempFile.renameTo(targetFile)) {
-            tempFile.copyTo(targetFile, overwrite = true)
-            tempFile.delete()
-        }
     }
 
-    private fun validateArtifact(file: File, artifact: ModelArtifact) {
-        if (!file.exists()) {
-            throw IOException("File missing after download: ${artifact.fileName}")
-        }
-        if (file.length() != artifact.sizeBytes) {
-            throw IOException(
-                "Size mismatch for ${artifact.fileName}: expected ${artifact.sizeBytes}, got ${file.length()}",
-            )
-        }
-        val actualSha = sha256(file)
-        if (!actualSha.equals(artifact.sha256, ignoreCase = true)) {
-            throw IOException(
-                "SHA-256 mismatch for ${artifact.fileName}: expected ${artifact.sha256}, got $actualSha",
-            )
-        }
-    }
-
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        FileInputStream(file).use { input ->
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            while (true) {
-                val read = input.read(buffer)
-                if (read <= 0) {
-                    break
-                }
-                digest.update(buffer, 0, read)
-            }
-        }
-        return digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
+    private companion object {
+        const val DOWNLOAD_BUFFER_BYTES = 64 * 1024
     }
 }

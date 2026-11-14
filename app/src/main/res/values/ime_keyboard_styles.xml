@@ -58,21 +58,4 @@
         <item name="android:scaleType">center</item>
         <item name="android:padding">0dp</item>
     </style>
-
-    <style name="ImeActionKey" parent="ImeSpecialKey">
-        <item name="android:background">@drawable/bg_ime_key_action</item>
-        <item name="android:textColor">@color/imeActionKeyText</item>
-    </style>
-
-    <style name="ImeActionIconKey">
-        <item name="android:layout_width">0dp</item>
-        <item name="android:layout_height">45dp</item>
-        <item name="android:layout_margin">2dp</item>
-        <item name="android:minHeight">0dp</item>
-        <item name="android:minWidth">0dp</item>
-        <item name="android:background">@drawable/bg_ime_key_action</item>
-        <item name="android:scaleType">fitCenter</item>
-        <item name="android:tint">@color/imeActionKeyText</item>
-        <item name="android:padding">1dp</item>
-    </style>
 </resources>
