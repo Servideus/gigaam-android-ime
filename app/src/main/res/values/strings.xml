@@ -10,15 +10,8 @@
     <string name="append_trailing_space_label">Добавлять пробел после транскрибации</string>
     <string name="append_trailing_space_hint">Рекомендуется для удобного набора в чатах и заметках</string>
     <string name="title_performance">Производительность</string>
-    <string name="speed_profile_title">Профиль скорости</string>
-    <string name="speed_profile_balanced">Сбалансированный</string>
-    <string name="speed_profile_fast">Быстрый</string>
-    <string name="speed_profile_quality">Качественный</string>
-    <string name="hardware_acceleration_label">Аппаратное ускорение (экспериментально)</string>
-    <string name="hardware_acceleration_hint_auto">Использует XNNPACK и NNAPI при наличии, затем CPU. На части телефонов медленнее CPU</string>
-    <string name="hardware_acceleration_hint_cpu">Только CPU (по умолчанию)</string>
     <string name="keep_model_warm_label">Держать модель прогретой</string>
-    <string name="keep_model_warm_hint">Оставляет модель в памяти и прогревает после выбора, чтобы снизить задержку первого запуска</string>
+    <string name="keep_model_warm_hint">Оставляет модель в памяти, чтобы первое распознавание не ждало её загрузки</string>
 
     <string name="grant_mic_permission">Выдать доступ к микрофону</string>
     <string name="download_selected_model">Скачать модель</string>

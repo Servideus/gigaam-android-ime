@@ -1,6 +1,6 @@
 mod gigaam;
 
-use crate::gigaam::{GigaamModel, RuntimeOptions};
+use crate::gigaam::GigaamModel;
 use jni::objects::{JClass, JShortArray, JString};
 use jni::sys::{jint, jstring};
 use jni::JNIEnv;
@@ -13,14 +13,12 @@ const MODEL_IDS: [&str; 1] = ["gigaam-v3-e2e-rnnt-int8"];
 const TARGET_SAMPLE_RATE: usize = 16_000;
 
 struct EngineCache {
-    runtime_options: RuntimeOptions,
-    /// The loaded model and its directory; always built with `runtime_options`.
+    /// The loaded model and its directory.
     loaded: Option<(PathBuf, GigaamModel)>,
     last_profile_summary: String,
 }
 
 static ENGINE_CACHE: Mutex<EngineCache> = Mutex::new(EngineCache {
-    runtime_options: RuntimeOptions::DEFAULT,
     loaded: None,
     last_profile_summary: String::new(),
 });
@@ -72,20 +70,6 @@ pub extern "system" fn Java_com_servideus_gigaamime_nativebridge_GigaamNativeBri
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_servideus_gigaamime_nativebridge_GigaamNativeBridge_nativeSetRuntimeOptions(
-    mut env: JNIEnv,
-    _class: JClass,
-    speed_profile: JString,
-    accelerator_mode: JString,
-) -> jstring {
-    let result = set_runtime_options_from_jni_inputs(&mut env, speed_profile, accelerator_mode);
-    match result {
-        Ok(message) => new_java_string(&mut env, message),
-        Err(error) => new_java_string(&mut env, format!("error: {error}")),
-    }
-}
-
-#[no_mangle]
 pub extern "system" fn Java_com_servideus_gigaamime_nativebridge_GigaamNativeBridge_nativeGetLastProfilingSummary(
     mut env: JNIEnv,
     _class: JClass,
@@ -107,29 +91,6 @@ pub extern "system" fn Java_com_servideus_gigaamime_nativebridge_GigaamNativeBri
         cache.loaded = None;
         cache.last_profile_summary.clear();
     }
-}
-
-fn set_runtime_options_from_jni_inputs(
-    env: &mut JNIEnv,
-    speed_profile: JString,
-    accelerator_mode: JString,
-) -> Result<String, String> {
-    let speed_profile = jstring_to_rust(env, speed_profile)?;
-    let accelerator_mode = jstring_to_rust(env, accelerator_mode)?;
-    let options = RuntimeOptions::from_ids(&speed_profile, &accelerator_mode);
-
-    let mut cache = lock_cache()?;
-    if cache.runtime_options != options {
-        cache.runtime_options = options;
-        // The session was built with the old options; free it now and rebuild on next use.
-        cache.loaded = None;
-    }
-
-    Ok(format!(
-        "ok: speed_profile={}, accelerator_mode={}",
-        options.speed_profile.as_id(),
-        options.accelerator_mode.as_id()
-    ))
 }
 
 fn warmup_from_jni_inputs(
@@ -194,7 +155,7 @@ fn ensure_model_loaded(
     if newly_loaded {
         // Free the previous session first so two models never sit in memory together.
         cache.loaded = None;
-        let model = GigaamModel::load(&model_dir, cache.runtime_options)
+        let model = GigaamModel::load(&model_dir)
             .map_err(|e| format!("Failed to load model: {e}"))?;
         cache.loaded = Some((model_dir, model));
     }

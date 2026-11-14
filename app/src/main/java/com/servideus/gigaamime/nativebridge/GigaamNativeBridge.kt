@@ -1,7 +1,5 @@
 package com.servideus.gigaamime.nativebridge
 
-import com.servideus.gigaamime.data.RuntimeSettings
-
 /**
  * JNI entry points of `libgigaam_core.so`. All calls block until the native engine lock is free,
  * so call them off the main thread.
@@ -40,12 +38,6 @@ object GigaamNativeBridge {
         return nativeWarmup(modelsRootDir, modelId)
     }
 
-    /** Changed options drop the loaded session; the next call rebuilds it. */
-    fun setRuntimeOptions(settings: RuntimeSettings): String {
-        ensureAvailable()
-        return nativeSetRuntimeOptions(settings.speedProfile.id, settings.acceleratorMode.id)
-    }
-
     fun getLastProfilingSummary(): String {
         ensureAvailable()
         return nativeGetLastProfilingSummary()
@@ -69,7 +61,6 @@ object GigaamNativeBridge {
     ): String
     private external fun nativeFindSettledPiece(pcm16: ShortArray, sampleRate: Int): Int
     private external fun nativeWarmup(modelsRootDir: String, modelId: String): String
-    private external fun nativeSetRuntimeOptions(speedProfile: String, acceleratorMode: String): String
     private external fun nativeGetLastProfilingSummary(): String
     private external fun nativeUnload()
 }

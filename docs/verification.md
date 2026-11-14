@@ -120,3 +120,11 @@ Build: `scripts/verify-build.ps1` passed, lint 0 errors, 55 warnings. Keyboard d
 External polling of the screen adds about 2 s on top of these numbers; it read 3.8–3.9 s and 6.1 s for the same runs, against 8.3–9.2 s for 61 s with the earlier build.
 
 Live speech: the user then dictated their own phrases on the phone and confirmed that recognition was fast and worked. This is user-confirmed behavior, not a measured accuracy or timing.
+
+# Verification: 2026-11-14 (acceleration and speed profiles removed)
+
+The hardware-acceleration switch and the speed profiles are gone from settings, Kotlin, JNI and the Rust core. The encoder always runs on ONNX Runtime's CPU provider with 6 threads (the fastest setup in the measurement above); the decoder and joint keep 1 thread. The profiles only changed thread counts and NNAPI precision, and every mode gave the same text. Stored `speed_profile` / `accelerator_mode` preferences are now ignored. The integration-test variables `GIGAAM_TEST_SPEED_PROFILE` / `GIGAAM_TEST_ACCELERATOR` no longer exist.
+
+Build: `scripts/verify-build.ps1` passed, lint 0 errors, 55 warnings. Rust unit tests on the phone: 9 of 9 passed. Integration test, 9.8 s phrase: 1.00–1.17 s per run, same text as before. The settings screen shows the model status, trailing space, warmup, and the download, delete and keyboard buttons.
+
+Keyboard dictation, TTS from PC speakers, timing from the app log (stop tap to text inserted): 11 s phrase 1.71 s and 1.37 s; 61 s recording 2.47 s. All texts complete.
