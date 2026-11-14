@@ -11,36 +11,26 @@ import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.ProgressBar
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.switchmaterial.SwitchMaterial
-import com.servideus.gigaamime.data.AcceleratorMode
 import com.servideus.gigaamime.data.GigaamModel
 import com.servideus.gigaamime.data.ModelRepository
 import com.servideus.gigaamime.data.ModelSelectionStore
-import com.servideus.gigaamime.data.SpeedProfile
 import com.servideus.gigaamime.nativebridge.GigaamNativeBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class SettingsActivity : AppCompatActivity() {
-    private lateinit var radioSpeedProfileGroup: RadioGroup
-    private lateinit var radioSpeedBalanced: RadioButton
-    private lateinit var radioSpeedFast: RadioButton
-    private lateinit var radioSpeedQuality: RadioButton
     private lateinit var txtSelectedStatus: TextView
     private lateinit var txtNativeStatus: TextView
     private lateinit var txtDownloadProgress: TextView
-    private lateinit var txtHardwareAccelerationHint: TextView
     private lateinit var progressDownload: ProgressBar
     private lateinit var switchAppendTrailingSpace: SwitchMaterial
-    private lateinit var switchHardwareAcceleration: SwitchMaterial
     private lateinit var switchWarmup: SwitchMaterial
     private lateinit var btnGrantMic: Button
     private lateinit var btnDownload: Button
@@ -74,23 +64,16 @@ class SettingsActivity : AppCompatActivity() {
         bindViews()
         setDownloadStatus(getString(R.string.status_download_idle))
         wireActions()
-        applyNativeRuntimeOptions()
         refreshUi()
         lifecycleScope.launch { modelRepository.deleteRetiredModels() }
     }
 
     private fun bindViews() {
-        radioSpeedProfileGroup = findViewById(R.id.radioSpeedProfileGroup)
-        radioSpeedBalanced = findViewById(R.id.radioSpeedBalanced)
-        radioSpeedFast = findViewById(R.id.radioSpeedFast)
-        radioSpeedQuality = findViewById(R.id.radioSpeedQuality)
         txtSelectedStatus = findViewById(R.id.txtSelectedStatus)
         txtNativeStatus = findViewById(R.id.txtNativeStatus)
         txtDownloadProgress = findViewById(R.id.txtDownloadProgress)
-        txtHardwareAccelerationHint = findViewById(R.id.txtHardwareAccelerationHint)
         progressDownload = findViewById(R.id.progressDownload)
         switchAppendTrailingSpace = findViewById(R.id.switchAppendTrailingSpace)
-        switchHardwareAcceleration = findViewById(R.id.switchHardwareAcceleration)
         switchWarmup = findViewById(R.id.switchWarmup)
         btnGrantMic = findViewById(R.id.btnGrantMic)
         btnDownload = findViewById(R.id.btnDownload)
@@ -99,27 +82,10 @@ class SettingsActivity : AppCompatActivity() {
         btnOpenInputPicker = findViewById(R.id.btnOpenInputPicker)
 
         switchAppendTrailingSpace.isChecked = selectionStore.getAppendTrailingSpace()
-        syncPerformanceControls()
+        switchWarmup.isChecked = selectionStore.isWarmupEnabled()
     }
 
     private fun wireActions() {
-        radioSpeedProfileGroup.setOnCheckedChangeListener { _, checkedId ->
-            val profile = when (checkedId) {
-                R.id.radioSpeedFast -> SpeedProfile.FAST
-                R.id.radioSpeedQuality -> SpeedProfile.QUALITY
-                else -> SpeedProfile.BALANCED
-            }
-            selectionStore.setSpeedProfile(profile)
-            applyNativeRuntimeOptions()
-            refreshUi()
-        }
-
-        switchHardwareAcceleration.setOnCheckedChangeListener { _, checked ->
-            selectionStore.setAcceleratorMode(if (checked) AcceleratorMode.AUTO else AcceleratorMode.CPU)
-            applyNativeRuntimeOptions()
-            refreshUi()
-        }
-
         switchWarmup.setOnCheckedChangeListener { _, checked ->
             selectionStore.setWarmupEnabled(checked)
             lifecycleScope.launch {
@@ -186,8 +152,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private suspend fun maybeWarmupModel() {
-        val runtimeSettings = selectionStore.getRuntimeSettings()
-        if (!runtimeSettings.warmupEnabled || !GigaamNativeBridge.isAvailable()) {
+        if (!selectionStore.isWarmupEnabled() || !GigaamNativeBridge.isAvailable()) {
             return
         }
         val installed = withContext(Dispatchers.IO) {
@@ -216,22 +181,6 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun applyNativeRuntimeOptions() {
-        if (!GigaamNativeBridge.isAvailable()) {
-            return
-        }
-        val runtimeSettings = selectionStore.getRuntimeSettings()
-        lifecycleScope.launch(Dispatchers.Default) {
-            runCatching {
-                GigaamNativeBridge.setRuntimeOptions(runtimeSettings)
-            }.onFailure {
-                if (DEBUG_LOGS) {
-                    Log.w(TAG, "Unable to apply runtime options: ${it.message}")
-                }
-            }
-        }
-    }
-
     /** Native calls wait for the engine lock, which a running transcription holds, so keep them off the UI thread. */
     private suspend fun unloadNativeModel() {
         withContext(Dispatchers.Default) { runCatching { GigaamNativeBridge.unload() } }
@@ -242,7 +191,6 @@ class SettingsActivity : AppCompatActivity() {
             val selectedInstalled = withContext(Dispatchers.IO) {
                 modelRepository.isModelDownloaded(model)
             }
-            val runtimeSettings = selectionStore.getRuntimeSettings()
             val selectedStatus = if (selectedInstalled) {
                 getString(R.string.status_model_ready)
             } else {
@@ -256,13 +204,6 @@ class SettingsActivity : AppCompatActivity() {
                 getString(R.string.status_native_error, GigaamNativeBridge.loadErrorSummary())
             }
 
-            txtHardwareAccelerationHint.text = if (runtimeSettings.acceleratorMode == AcceleratorMode.AUTO) {
-                getString(R.string.hardware_acceleration_hint_auto)
-            } else {
-                getString(R.string.hardware_acceleration_hint_cpu)
-            }
-
-            syncPerformanceControls()
             if (!busy && downloadStatusText.isNullOrBlank()) {
                 setDownloadStatus(getString(R.string.status_download_idle))
             }
@@ -272,22 +213,6 @@ class SettingsActivity : AppCompatActivity() {
                 Manifest.permission.RECORD_AUDIO,
             ) == PackageManager.PERMISSION_GRANTED
             applyEnabledState(canGrantMic = !hasMicPermission, selectedInstalled = selectedInstalled)
-        }
-    }
-
-    private fun syncPerformanceControls() {
-        val runtimeSettings = selectionStore.getRuntimeSettings()
-        when (runtimeSettings.speedProfile) {
-            SpeedProfile.BALANCED -> if (!radioSpeedBalanced.isChecked) radioSpeedBalanced.isChecked = true
-            SpeedProfile.FAST -> if (!radioSpeedFast.isChecked) radioSpeedFast.isChecked = true
-            SpeedProfile.QUALITY -> if (!radioSpeedQuality.isChecked) radioSpeedQuality.isChecked = true
-        }
-        val accelerationEnabled = runtimeSettings.acceleratorMode == AcceleratorMode.AUTO
-        if (switchHardwareAcceleration.isChecked != accelerationEnabled) {
-            switchHardwareAcceleration.isChecked = accelerationEnabled
-        }
-        if (switchWarmup.isChecked != runtimeSettings.warmupEnabled) {
-            switchWarmup.isChecked = runtimeSettings.warmupEnabled
         }
     }
 
@@ -301,15 +226,7 @@ class SettingsActivity : AppCompatActivity() {
         val idle = !busy
         btnGrantMic.isEnabled = canGrantMic && idle
         btnDelete.isEnabled = selectedInstalled && idle
-        for (control in listOf<View>(
-            btnDownload,
-            radioSpeedBalanced,
-            radioSpeedFast,
-            radioSpeedQuality,
-            switchAppendTrailingSpace,
-            switchHardwareAcceleration,
-            switchWarmup,
-        )) {
+        for (control in listOf<View>(btnDownload, switchAppendTrailingSpace, switchWarmup)) {
             control.isEnabled = idle
         }
     }

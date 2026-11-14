@@ -24,7 +24,6 @@ import com.servideus.gigaamime.audio.AudioCapture
 import com.servideus.gigaamime.data.GigaamModel
 import com.servideus.gigaamime.data.ModelRepository
 import com.servideus.gigaamime.data.ModelSelectionStore
-import com.servideus.gigaamime.data.RuntimeSettings
 import com.servideus.gigaamime.nativebridge.GigaamNativeBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,7 +72,7 @@ class GigaamImeService : InputMethodService() {
         super.onCreate()
         modelRepository = ModelRepository(applicationContext)
         selectionStore = ModelSelectionStore(applicationContext)
-        serviceScope.launch { applyRuntimeOptionsAndWarmup() }
+        serviceScope.launch { warmupIfEnabled() }
     }
 
     override fun onCreateInputView(): View {
@@ -108,7 +107,7 @@ class GigaamImeService : InputMethodService() {
         shiftEnabled = false
         symbolMode = false
         applyKeyboardLayout()
-        serviceScope.launch { applyRuntimeOptionsAndWarmup() }
+        serviceScope.launch { warmupIfEnabled() }
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -327,7 +326,6 @@ class GigaamImeService : InputMethodService() {
      * recording is then transcribed after stop as before.
      */
     private suspend fun transcribeWhileRecording(capture: AudioCapture, pieces: LivePieces) {
-        val runtimeSettings = selectionStore.getRuntimeSettings()
         while (audioCapture === capture) {
             delay(LIVE_CHECK_INTERVAL_MS)
             // Stop cancels this loop to skip the wait above; a piece already running still finishes
@@ -337,7 +335,7 @@ class GigaamImeService : InputMethodService() {
                     runNativeCall {
                         val pending = capture.copySamples(pieces.samples)
                         val end = GigaamNativeBridge.findSettledPiece(pending, capture.sampleRate)
-                        if (end == 0) null else end to transcribeNative(pending.copyOf(end), capture.sampleRate, runtimeSettings)
+                        if (end == 0) null else end to transcribeNative(pending.copyOf(end), capture.sampleRate)
                     }
                 }
             }
@@ -364,10 +362,10 @@ class GigaamImeService : InputMethodService() {
         val stopRequestedAtNs = SystemClock.elapsedRealtimeNanos()
         val captureDurationMs = nsToMs(stopRequestedAtNs - recordingStartedAtNs)
         recordingStartedAtNs = 0L
-        val runtimeSettings = selectionStore.getRuntimeSettings()
+        val warmupEnabled = selectionStore.isWarmupEnabled()
 
         serviceScope.launch {
-            val result = runCatching { transcribe(capture, pieces, runtimeSettings) }
+            val result = runCatching { transcribe(capture, pieces) }
             transcribing = false
             updateButtons()
 
@@ -399,7 +397,7 @@ class GigaamImeService : InputMethodService() {
                 Log.i(TAG, "TranscribeTiming: captureMs=$captureDurationMs, postStopMs=$postStopMs, native=$nativeTimings")
             }
 
-            if (!runtimeSettings.warmupEnabled) {
+            if (!warmupEnabled) {
                 runCatching { runNativeCall { GigaamNativeBridge.unload() } }
             }
         }
@@ -409,11 +407,7 @@ class GigaamImeService : InputMethodService() {
      * Returns recognized text, a [GigaamNativeBridge.TRANSCRIBE_ERROR_PREFIX] message, or "" for no
      * audio. Pieces already transcribed while recording are reused; only the rest is transcribed.
      */
-    private suspend fun transcribe(
-        capture: AudioCapture,
-        pieces: LivePieces?,
-        runtimeSettings: RuntimeSettings,
-    ): String {
+    private suspend fun transcribe(capture: AudioCapture, pieces: LivePieces?): String {
         val pcm16 = withContext(Dispatchers.IO) { capture.stop() }
         // Ends the loop's wait at once; a piece in flight still finishes and is kept.
         pieces?.job?.cancelAndJoin()
@@ -425,7 +419,7 @@ class GigaamImeService : InputMethodService() {
         val restText = if (rest.isEmpty()) {
             ""
         } else {
-            runNativeCall { transcribeNative(rest, capture.sampleRate, runtimeSettings) }
+            runNativeCall { transcribeNative(rest, capture.sampleRate) }
         }
         if (restText.startsWith(GigaamNativeBridge.TRANSCRIBE_ERROR_PREFIX)) {
             return restText
@@ -449,17 +443,13 @@ class GigaamImeService : InputMethodService() {
         }
 
     /** Blocking; call only inside [runNativeCall]. */
-    private fun transcribeNative(pcm16: ShortArray, sampleRate: Int, runtimeSettings: RuntimeSettings): String {
-        runCatching { GigaamNativeBridge.setRuntimeOptions(runtimeSettings) }.onFailure { error ->
-            if (DEBUG_LOGS) Log.w(TAG, "Failed to apply runtime options: ${error.message}")
-        }
-        return GigaamNativeBridge.transcribe(
+    private fun transcribeNative(pcm16: ShortArray, sampleRate: Int): String =
+        GigaamNativeBridge.transcribe(
             modelsRootDir = modelRepository.modelsRootDir.absolutePath,
             modelId = GigaamModel.INT8.id,
             pcm16 = pcm16,
             sampleRate = sampleRate,
         )
-    }
 
     private fun stopRecordingInternal() {
         if (!recording) {
@@ -512,20 +502,18 @@ class GigaamImeService : InputMethodService() {
     }
 
     /**
-     * Applies the stored runtime options and, if warmup is on, loads the active model.
+     * If warmup is on, loads the model ahead of the first dictation.
      * Cheap to repeat: the native core skips the dummy pass when the model is already loaded.
      */
-    private suspend fun applyRuntimeOptionsAndWarmup() {
+    private suspend fun warmupIfEnabled() {
         if (!GigaamNativeBridge.isAvailable()) {
             return
         }
         val activeModel = GigaamModel.INT8
-        val runtimeSettings = selectionStore.getRuntimeSettings()
 
         val result = runCatching {
             runNativeCall {
-                GigaamNativeBridge.setRuntimeOptions(runtimeSettings)
-                if (runtimeSettings.warmupEnabled && modelRepository.isModelDownloaded(activeModel)) {
+                if (selectionStore.isWarmupEnabled() && modelRepository.isModelDownloaded(activeModel)) {
                     GigaamNativeBridge.warmup(modelRepository.modelsRootDir.absolutePath, activeModel.id)
                 } else {
                     "ok: warmup skipped"

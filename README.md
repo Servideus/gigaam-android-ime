@@ -6,7 +6,7 @@ An experimental Android keyboard for offline Russian dictation using GigaAM v3 e
 
 ## Status
 
-Beta 0.1.2 fixes keyboard switching on Android 8. Debug/release builds and lint passed, with 71 lint warnings remaining. The user confirmed that int8 dictation inserted text on an Infinix X6833B. See the [verification report](docs/verification.md) for the tested versions and limits; Android 8 hardware and acceleration were not verified. The switch from e2e-CTC to e2e-RNNT was checked on the same phone, except the in-app model download.
+Beta 0.1.2 fixes keyboard switching on Android 8. Debug/release builds and lint passed, with 71 lint warnings remaining. The user confirmed that int8 dictation inserted text on an Infinix X6833B. See the [verification report](docs/verification.md) for the tested versions and limits; Android 8 hardware was not verified. The switch from e2e-CTC to e2e-RNNT was checked on the same phone, except the in-app model download.
 
 ## Features
 
@@ -15,8 +15,8 @@ Beta 0.1.2 fixes keyboard switching on Android 8. Debug/release builds and lint 
 - Recordings longer than 20 s are cut at pauses into 10–20 s pieces; one model pass over a long recording loses text.
 - Pieces are transcribed while recording goes on. After stop at most a 30 s tail is left, so the wait does not grow with recording length.
 - When a cut falls inside a sentence, the capital letter at the start of the next piece becomes lowercase.
-- Download/delete the model and select a performance profile.
-- Experimental hardware acceleration (off by default: on the tested phone it was twice as slow as CPU) and model warmup settings.
+- Download/delete the model; optional model warmup.
+- Inference runs on ONNX Runtime's CPU provider with 6 threads, the fastest setup measured on the test phone. XNNPACK/NNAPI acceleration and speed profiles were removed: acceleration was twice as slow there, and the profiles gave the same text.
 - SHA-256 verification and models stored in the app's internal storage.
 
 ## Model

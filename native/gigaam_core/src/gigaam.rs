@@ -1,9 +1,5 @@
 use anyhow::{anyhow, bail, Context, Result};
 use ndarray::{s, Array1, Array2, Array3, ArrayView3};
-use ort::execution_providers::cpu::CPUExecutionProvider;
-use ort::execution_providers::nnapi::NNAPIExecutionProvider;
-use ort::execution_providers::xnnpack::XNNPACKExecutionProvider;
-use ort::execution_providers::{ExecutionProvider, ExecutionProviderDispatch};
 use ort::inputs;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::{Session, SessionOutputs};
@@ -12,7 +8,6 @@ use regex::Regex;
 use rustfft::{num_complex::Complex32, Fft, FftPlanner};
 use std::f32::consts::PI;
 use std::fs;
-use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
@@ -38,97 +33,14 @@ const PAUSE_WINDOW_FRAMES: usize = 30;
 
 const MEL_MIN_CLAMP: f32 = 1e-9;
 const MEL_MAX_CLAMP: f32 = 1e9;
-const XNNPACK_THREAD_COUNT: usize = 4;
+
+/// ONNX Runtime's plain CPU provider with 6 threads was the fastest setup measured on a Helio G99
+/// phone (2 fast + 6 slow cores). XNNPACK + NNAPI was about twice as slow, and 2, 4 or 8 threads
+/// were no faster; see docs/verification.md.
+const ENCODER_THREADS: usize = 6;
 
 static DECODE_SPACE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\A\s|\s\B|(\s)\b").expect("valid decode spacing regex"));
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RuntimeSpeedProfile {
-    Balanced,
-    Fast,
-    Quality,
-}
-
-impl RuntimeSpeedProfile {
-    pub fn from_id(value: &str) -> Self {
-        match value {
-            "fast" => Self::Fast,
-            "quality" => Self::Quality,
-            _ => Self::Balanced,
-        }
-    }
-
-    pub fn as_id(self) -> &'static str {
-        match self {
-            Self::Balanced => "balanced",
-            Self::Fast => "fast",
-            Self::Quality => "quality",
-        }
-    }
-
-    fn nnapi_use_fp16(self) -> bool {
-        !matches!(self, Self::Quality)
-    }
-
-    /// (intra_threads, inter_threads, parallel_execution) for the CPU-only mode.
-    fn cpu_threads(self) -> (usize, usize, bool) {
-        match self {
-            Self::Balanced => (4, 1, false),
-            Self::Fast => (6, 1, false),
-            Self::Quality => (4, 1, true),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RuntimeAcceleratorMode {
-    Auto,
-    Cpu,
-}
-
-impl RuntimeAcceleratorMode {
-    /// CPU unless "auto" is asked for: on a Helio G99 phone Auto was about twice as slow.
-    pub fn from_id(value: &str) -> Self {
-        match value {
-            "auto" => Self::Auto,
-            _ => Self::Cpu,
-        }
-    }
-
-    pub fn as_id(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Cpu => "cpu",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RuntimeOptions {
-    pub speed_profile: RuntimeSpeedProfile,
-    pub accelerator_mode: RuntimeAcceleratorMode,
-}
-
-impl RuntimeOptions {
-    pub const DEFAULT: Self = Self {
-        speed_profile: RuntimeSpeedProfile::Balanced,
-        accelerator_mode: RuntimeAcceleratorMode::Cpu,
-    };
-
-    pub fn from_ids(speed_profile: &str, accelerator_mode: &str) -> Self {
-        Self {
-            speed_profile: RuntimeSpeedProfile::from_id(speed_profile),
-            accelerator_mode: RuntimeAcceleratorMode::from_id(accelerator_mode),
-        }
-    }
-}
-
-impl Default for RuntimeOptions {
-    fn default() -> Self {
-        Self::DEFAULT
-    }
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct NativeTranscriptionTimings {
@@ -142,81 +54,18 @@ pub struct NativeTranscriptionTimings {
 pub struct NativeTranscriptionReport {
     pub text: String,
     pub timings: NativeTranscriptionTimings,
-    pub provider_summary: String,
 }
 
 impl NativeTranscriptionReport {
     /// JSON object members without the surrounding braces, so callers can add their own fields.
     pub fn json_fields(&self) -> String {
-        let safe_provider = escape_json_string(&self.provider_summary);
         format!(
-            "\"provider\":\"{safe_provider}\",\"feature_extraction_ms\":{},\"ort_run_ms\":{},\"decode_ms\":{},\"total_ms\":{}",
+            "\"feature_extraction_ms\":{},\"ort_run_ms\":{},\"decode_ms\":{},\"total_ms\":{}",
             self.timings.feature_extraction_ms,
             self.timings.ort_run_ms,
             self.timings.decode_ms,
             self.timings.total_ms
         )
-    }
-}
-
-struct SessionRuntimePlan {
-    providers: Vec<ExecutionProviderDispatch>,
-    provider_summary: String,
-    intra_threads: usize,
-    inter_threads: usize,
-    parallel_execution: bool,
-}
-
-impl SessionRuntimePlan {
-    fn from_runtime_options(options: RuntimeOptions) -> Self {
-        let profile = options.speed_profile;
-        let cpu_available = CPUExecutionProvider::default().is_available().unwrap_or(true);
-        match options.accelerator_mode {
-            RuntimeAcceleratorMode::Auto => {
-                let xnnpack = XNNPACKExecutionProvider::default().with_intra_op_num_threads(
-                    NonZeroUsize::new(XNNPACK_THREAD_COUNT).expect("non-zero constant"),
-                );
-                let nnapi = NNAPIExecutionProvider::default()
-                    .with_disable_cpu(true)
-                    .with_fp16(profile.nnapi_use_fp16());
-                let provider_summary = format!(
-                    "mode=auto, profile={}, requested=[XNNPACK(available={},threads={}), NNAPI(available={},disable_cpu=true,fp16={}), CPU(available={})]",
-                    profile.as_id(),
-                    xnnpack.is_available().unwrap_or(false),
-                    XNNPACK_THREAD_COUNT,
-                    nnapi.is_available().unwrap_or(false),
-                    profile.nnapi_use_fp16(),
-                    cpu_available
-                );
-
-                // XNNPACK runs its own thread pool, so ORT's own pools stay at one thread.
-                Self {
-                    providers: vec![
-                        xnnpack.build(),
-                        nnapi.build(),
-                        CPUExecutionProvider::default().build(),
-                    ],
-                    provider_summary,
-                    intra_threads: 1,
-                    inter_threads: 1,
-                    parallel_execution: false,
-                }
-            }
-            RuntimeAcceleratorMode::Cpu => {
-                let (intra_threads, inter_threads, parallel_execution) = profile.cpu_threads();
-                Self {
-                    providers: vec![CPUExecutionProvider::default().build()],
-                    provider_summary: format!(
-                        "mode=cpu, profile={}, requested=[CPU(available={})]",
-                        profile.as_id(),
-                        cpu_available
-                    ),
-                    intra_threads,
-                    inter_threads,
-                    parallel_execution,
-                }
-            }
-        }
     }
 }
 
@@ -396,11 +245,10 @@ pub struct GigaamModel {
     frontend: GigaamFrontend,
     vocab: Vec<String>,
     blank_idx: usize,
-    provider_summary: String,
 }
 
 impl GigaamModel {
-    pub fn load(model_dir: &Path, runtime_options: RuntimeOptions) -> Result<Self> {
+    pub fn load(model_dir: &Path) -> Result<Self> {
         let vocab_content = read_model_file(&model_dir.join(VOCAB_FILENAME), "vocab")?;
         let (vocab, blank_idx) = parse_vocab_content(&vocab_content)?;
         let config = GigaamConfig::from_yaml(&read_model_file(&model_dir.join(CONFIG_FILENAME), "config")?);
@@ -412,30 +260,13 @@ impl GigaamModel {
         }
         let frontend = GigaamFrontend::from_config(&config)?;
 
-        let runtime_plan = SessionRuntimePlan::from_runtime_options(runtime_options);
-        let encoder_path = existing_model_file(model_dir, ENCODER_FILENAME)?;
-        let encoder = Session::builder()?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .with_intra_threads(runtime_plan.intra_threads)?
-            .with_inter_threads(runtime_plan.inter_threads)?
-            .with_execution_providers(runtime_plan.providers)?
-            .with_parallel_execution(runtime_plan.parallel_execution)?
-            .commit_from_file(&encoder_path)
-            .with_context(|| {
-                format!("Failed to initialize ONNX Runtime session: {}", encoder_path.display())
-            })?;
-
         Ok(Self {
-            encoder,
-            decoder: load_step_session(model_dir, DECODER_FILENAME)?,
-            joint: load_step_session(model_dir, JOINT_FILENAME)?,
+            encoder: load_cpu_session(model_dir, ENCODER_FILENAME, ENCODER_THREADS)?,
+            decoder: load_cpu_session(model_dir, DECODER_FILENAME, 1)?,
+            joint: load_cpu_session(model_dir, JOINT_FILENAME, 1)?,
             frontend,
             vocab,
             blank_idx,
-            provider_summary: format!(
-                "{}; decoder+joint=CPU(1 thread)",
-                runtime_plan.provider_summary
-            ),
         })
     }
 
@@ -455,7 +286,6 @@ impl GigaamModel {
         Ok(NativeTranscriptionReport {
             text: join_pieces(&pieces),
             timings,
-            provider_summary: self.provider_summary.clone(),
         })
     }
 
@@ -529,13 +359,13 @@ impl GigaamModel {
     }
 }
 
-/// The decoder and joint run once per token or frame on tiny inputs, where accelerator
-/// dispatch and thread pools cost more than the math, so they stay on one CPU thread.
-fn load_step_session(model_dir: &Path, filename: &str) -> Result<Session> {
+/// A session on ONNX Runtime's default CPU provider. The decoder and joint run once per token
+/// or frame on tiny inputs, where a thread pool costs more than the math, so they get 1 thread.
+fn load_cpu_session(model_dir: &Path, filename: &str, threads: usize) -> Result<Session> {
     let path = existing_model_file(model_dir, filename)?;
     Session::builder()?
         .with_optimization_level(GraphOptimizationLevel::Level3)?
-        .with_intra_threads(1)?
+        .with_intra_threads(threads)?
         .with_inter_threads(1)?
         .commit_from_file(&path)
         .with_context(|| format!("Failed to initialize ONNX Runtime session: {}", path.display()))
@@ -816,10 +646,6 @@ fn quantize_to_bf16(value: f32) -> f32 {
     f32::from_bits(value.to_bits() & 0xFFFF_0000)
 }
 
-fn escape_json_string(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('\"', "\\\"")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1046,13 +872,8 @@ mod tests {
         let wav_path = std::env::var("GIGAAM_TEST_WAV_PATH")
             .context("GIGAAM_TEST_WAV_PATH is required for integration test")?;
         let expected_substring = std::env::var("GIGAAM_TEST_EXPECT_CONTAINS").unwrap_or_default();
-        // Same ids as the app settings, e.g. "fast" and "cpu"; unset means the defaults.
-        let options = RuntimeOptions::from_ids(
-            &std::env::var("GIGAAM_TEST_SPEED_PROFILE").unwrap_or_default(),
-            &std::env::var("GIGAAM_TEST_ACCELERATOR").unwrap_or_default(),
-        );
 
-        let mut model = GigaamModel::load(Path::new(&model_dir), options)?;
+        let mut model = GigaamModel::load(Path::new(&model_dir))?;
         let samples = read_wav_mono_f32(Path::new(&wav_path))?;
         for run in 1..=3 {
             let report = model.transcribe_samples(&samples)?;
