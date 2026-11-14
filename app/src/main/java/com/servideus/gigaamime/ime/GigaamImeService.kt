@@ -29,8 +29,10 @@ import com.servideus.gigaamime.nativebridge.GigaamNativeBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -62,6 +64,7 @@ class GigaamImeService : InputMethodService() {
     private var backspaceRepeatJob: Job? = null
 
     private var audioCapture: AudioCapture? = null
+    private var livePieces: LivePieces? = null
     private var recording = false
     private var transcribing = false
     private var recordingStartedAtNs = 0L
@@ -294,7 +297,7 @@ class GigaamImeService : InputMethodService() {
         val statusRes = when {
             !hasMicrophonePermission() -> R.string.ime_status_no_permission
             !GigaamNativeBridge.isAvailable() -> R.string.ime_status_native_unavailable
-            !modelRepository.isModelDownloaded(selectionStore.getActiveModel()) -> R.string.ime_status_model_missing
+            !modelRepository.isModelDownloaded(GigaamModel.INT8) -> R.string.ime_status_model_missing
             else -> null
         }
         if (statusRes != null) {
@@ -311,13 +314,48 @@ class GigaamImeService : InputMethodService() {
         audioCapture = capture
         recording = true
         recordingStartedAtNs = SystemClock.elapsedRealtimeNanos()
+        livePieces = LivePieces().also { pieces ->
+            pieces.job = serviceScope.launch { transcribeWhileRecording(capture, pieces) }
+        }
         setStatus(getString(R.string.ime_status_recording))
         updateButtons()
     }
 
+    /**
+     * While [capture] is the active recording, transcribes each piece as soon as its end is
+     * settled, so that after stop only the rest is left. Stops at the first failure; the whole
+     * recording is then transcribed after stop as before.
+     */
+    private suspend fun transcribeWhileRecording(capture: AudioCapture, pieces: LivePieces) {
+        val runtimeSettings = selectionStore.getRuntimeSettings()
+        while (audioCapture === capture) {
+            delay(LIVE_CHECK_INTERVAL_MS)
+            // Stop cancels this loop to skip the wait above; a piece already running still finishes
+            // and is recorded below, so its audio is not transcribed twice.
+            val result = runCatching {
+                withContext(NonCancellable) {
+                    runNativeCall {
+                        val pending = capture.copySamples(pieces.samples)
+                        val end = GigaamNativeBridge.findSettledPiece(pending, capture.sampleRate)
+                        if (end == 0) null else end to transcribeNative(pending.copyOf(end), capture.sampleRate, runtimeSettings)
+                    }
+                }
+            }
+            val (end, text) = result.getOrElse { pieces.failed = true; return } ?: continue
+            if (text.startsWith(GigaamNativeBridge.TRANSCRIBE_ERROR_PREFIX)) {
+                pieces.failed = true
+                return
+            }
+            if (text.isNotBlank()) pieces.texts += text
+            pieces.samples += end
+        }
+    }
+
     private fun stopRecordingAndTranscribe() {
         val capture = audioCapture ?: return
+        val pieces = livePieces
         audioCapture = null
+        livePieces = null
         recording = false
         transcribing = true
         updateButtons()
@@ -326,11 +364,10 @@ class GigaamImeService : InputMethodService() {
         val stopRequestedAtNs = SystemClock.elapsedRealtimeNanos()
         val captureDurationMs = nsToMs(stopRequestedAtNs - recordingStartedAtNs)
         recordingStartedAtNs = 0L
-        val activeModel = selectionStore.getActiveModel()
         val runtimeSettings = selectionStore.getRuntimeSettings()
 
         serviceScope.launch {
-            val result = runCatching { transcribe(capture, activeModel, runtimeSettings) }
+            val result = runCatching { transcribe(capture, pieces, runtimeSettings) }
             transcribing = false
             updateButtons()
 
@@ -358,7 +395,8 @@ class GigaamImeService : InputMethodService() {
                     runNativeCall { GigaamNativeBridge.getLastProfilingSummary() }
                 }.getOrDefault("native timings unavailable")
                 val postStopMs = nsToMs(SystemClock.elapsedRealtimeNanos() - stopRequestedAtNs)
-                Log.d(TAG, "TranscribeTiming: captureMs=$captureDurationMs, postStopMs=$postStopMs, native=$nativeTimings")
+                // Info level: some firmware (Infinix XOS) hides debug-level lines from logcat.
+                Log.i(TAG, "TranscribeTiming: captureMs=$captureDurationMs, postStopMs=$postStopMs, native=$nativeTimings")
             }
 
             if (!runtimeSettings.warmupEnabled) {
@@ -367,33 +405,68 @@ class GigaamImeService : InputMethodService() {
         }
     }
 
-    /** Returns recognized text, a [GigaamNativeBridge.TRANSCRIBE_ERROR_PREFIX] message, or "" for no audio. */
+    /**
+     * Returns recognized text, a [GigaamNativeBridge.TRANSCRIBE_ERROR_PREFIX] message, or "" for no
+     * audio. Pieces already transcribed while recording are reused; only the rest is transcribed.
+     */
     private suspend fun transcribe(
         capture: AudioCapture,
-        model: GigaamModel,
+        pieces: LivePieces?,
         runtimeSettings: RuntimeSettings,
     ): String {
         val pcm16 = withContext(Dispatchers.IO) { capture.stop() }
+        // Ends the loop's wait at once; a piece in flight still finishes and is kept.
+        pieces?.job?.cancelAndJoin()
         if (pcm16.isEmpty()) {
             return ""
         }
-        return runNativeCall {
-            runCatching { GigaamNativeBridge.setRuntimeOptions(runtimeSettings) }.onFailure { error ->
-                if (DEBUG_LOGS) Log.w(TAG, "Failed to apply runtime options: ${error.message}")
-            }
-            GigaamNativeBridge.transcribe(
-                modelsRootDir = modelRepository.modelsRootDir.absolutePath,
-                modelId = model.id,
-                pcm16 = pcm16,
-                sampleRate = capture.sampleRate,
-            )
+        val done = pieces?.takeUnless { it.failed }
+        val rest = pcm16.copyOfRange(done?.samples ?: 0, pcm16.size)
+        val restText = if (rest.isEmpty()) {
+            ""
+        } else {
+            runNativeCall { transcribeNative(rest, capture.sampleRate, runtimeSettings) }
         }
+        if (restText.startsWith(GigaamNativeBridge.TRANSCRIBE_ERROR_PREFIX)) {
+            return restText
+        }
+        return joinPieces(done?.texts.orEmpty() + restText)
+    }
+
+    /**
+     * Joins texts of consecutive pieces by the rule of `join_pieces` in gigaam.rs: after a piece
+     * that ends without . ! ? or …, the next piece's capital (not an acronym's) becomes lowercase.
+     */
+    private fun joinPieces(texts: List<String>): String =
+        texts.map { it.trim() }.filter { it.isNotEmpty() }.fold("") { joined, piece ->
+            val continuesSentence = joined.isNotEmpty() && joined.last() !in ".!?…"
+            when {
+                joined.isEmpty() -> piece
+                continuesSentence && piece[0].isUpperCase() && piece.getOrNull(1)?.isUpperCase() != true ->
+                    "$joined ${piece[0].lowercaseChar()}${piece.substring(1)}"
+                else -> "$joined $piece"
+            }
+        }
+
+    /** Blocking; call only inside [runNativeCall]. */
+    private fun transcribeNative(pcm16: ShortArray, sampleRate: Int, runtimeSettings: RuntimeSettings): String {
+        runCatching { GigaamNativeBridge.setRuntimeOptions(runtimeSettings) }.onFailure { error ->
+            if (DEBUG_LOGS) Log.w(TAG, "Failed to apply runtime options: ${error.message}")
+        }
+        return GigaamNativeBridge.transcribe(
+            modelsRootDir = modelRepository.modelsRootDir.absolutePath,
+            modelId = GigaamModel.INT8.id,
+            pcm16 = pcm16,
+            sampleRate = sampleRate,
+        )
     }
 
     private fun stopRecordingInternal() {
         if (!recording) {
             return
         }
+        livePieces?.job?.cancel()
+        livePieces = null
         recording = false
         recordingStartedAtNs = 0L
         audioCapture?.stop()
@@ -446,7 +519,7 @@ class GigaamImeService : InputMethodService() {
         if (!GigaamNativeBridge.isAvailable()) {
             return
         }
-        val activeModel = selectionStore.getActiveModel()
+        val activeModel = GigaamModel.INT8
         val runtimeSettings = selectionStore.getRuntimeSettings()
 
         val result = runCatching {
@@ -476,9 +549,18 @@ class GigaamImeService : InputMethodService() {
         EN,
     }
 
+    /** Text of the pieces transcribed while recording and how many input samples they cover. */
+    private class LivePieces {
+        val texts = mutableListOf<String>()
+        var samples = 0
+        var failed = false
+        var job: Job? = null
+    }
+
     private companion object {
         const val TAG = "GigaamImeService"
         const val DEBUG_LOGS = true
+        const val LIVE_CHECK_INTERVAL_MS = 1_000L
         const val BACKSPACE_REPEAT_INITIAL_DELAY_MS = 300L
         const val BACKSPACE_REPEAT_INTERVAL_MS = 45L
         const val HALF_KEY_SPACER = ""

@@ -25,6 +25,15 @@ object GigaamNativeBridge {
         return nativeTranscribe(modelsRootDir, modelId, pcm16, sampleRate)
     }
 
+    /**
+     * Number of samples at the start of a still-running recording that can already be transcribed
+     * on their own; cut exactly where the whole recording would be cut. 0 while none is ready.
+     */
+    fun findSettledPiece(pcm16: ShortArray, sampleRate: Int): Int {
+        ensureAvailable()
+        return nativeFindSettledPiece(pcm16, sampleRate)
+    }
+
     /** Loads the model if needed; runs one dummy pass only right after a fresh load. */
     fun warmup(modelsRootDir: String, modelId: String): String {
         ensureAvailable()
@@ -58,6 +67,7 @@ object GigaamNativeBridge {
         pcm16: ShortArray,
         sampleRate: Int,
     ): String
+    private external fun nativeFindSettledPiece(pcm16: ShortArray, sampleRate: Int): Int
     private external fun nativeWarmup(modelsRootDir: String, modelId: String): String
     private external fun nativeSetRuntimeOptions(speedProfile: String, acceleratorMode: String): String
     private external fun nativeGetLastProfilingSummary(): String

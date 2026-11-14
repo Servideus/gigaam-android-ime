@@ -1,16 +1,15 @@
 use anyhow::{anyhow, bail, Context, Result};
-use ndarray::{s, Array1, Array3, ArrayView3, Ix3};
+use ndarray::{s, Array1, Array2, Array3, ArrayView3};
 use ort::execution_providers::cpu::CPUExecutionProvider;
 use ort::execution_providers::nnapi::NNAPIExecutionProvider;
 use ort::execution_providers::xnnpack::XNNPACKExecutionProvider;
 use ort::execution_providers::{ExecutionProvider, ExecutionProviderDispatch};
 use ort::inputs;
 use ort::session::builder::GraphOptimizationLevel;
-use ort::session::Session;
+use ort::session::{Session, SessionOutputs};
 use ort::value::TensorRef;
 use regex::Regex;
 use rustfft::{num_complex::Complex32, Fft, FftPlanner};
-use std::cmp::Ordering;
 use std::f32::consts::PI;
 use std::fs;
 use std::num::NonZeroUsize;
@@ -18,9 +17,24 @@ use std::path::Path;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
-const MODEL_FILENAMES: [&str; 2] = ["v3_e2e_ctc.int8.onnx", "v3_e2e_ctc.onnx"];
-const VOCAB_FILENAME: &str = "v3_e2e_ctc_vocab.txt";
-const CONFIG_FILENAME: &str = "v3_e2e_ctc.yaml";
+const ENCODER_FILENAME: &str = "v3_e2e_rnnt_encoder.int8.onnx";
+const DECODER_FILENAME: &str = "v3_e2e_rnnt_decoder.int8.onnx";
+const JOINT_FILENAME: &str = "v3_e2e_rnnt_joint.int8.onnx";
+const VOCAB_FILENAME: &str = "v3_e2e_rnnt_vocab.txt";
+const CONFIG_FILENAME: &str = "v3_e2e_rnnt.yaml";
+
+const SAMPLE_RATE: usize = 16_000;
+/// Width of the RNN-T prediction network state (`pred_hidden` in the model config).
+const PRED_HIDDEN: usize = 320;
+/// Greedy RNN-T emits at most this many tokens per encoder frame (the onnx-asr default).
+const MAX_TOKENS_PER_STEP: usize = 3;
+
+/// One encoder pass over a long recording drops text (182 s came back empty), so longer audio
+/// is cut at its quietest moments into pieces of SEGMENT_MIN..=SEGMENT_MAX seconds.
+const SEGMENT_MAX_SECONDS: usize = 20;
+const SEGMENT_MIN_SECONDS: usize = 10;
+/// Silence is judged by the mean energy over this many 10 ms frames.
+const PAUSE_WINDOW_FRAMES: usize = 30;
 
 const MEL_MIN_CLAMP: f32 = 1e-9;
 const MEL_MAX_CLAMP: f32 = 1e9;
@@ -74,10 +88,11 @@ pub enum RuntimeAcceleratorMode {
 }
 
 impl RuntimeAcceleratorMode {
+    /// CPU unless "auto" is asked for: on a Helio G99 phone Auto was about twice as slow.
     pub fn from_id(value: &str) -> Self {
         match value {
-            "cpu" => Self::Cpu,
-            _ => Self::Auto,
+            "auto" => Self::Auto,
+            _ => Self::Cpu,
         }
     }
 
@@ -98,7 +113,7 @@ pub struct RuntimeOptions {
 impl RuntimeOptions {
     pub const DEFAULT: Self = Self {
         speed_profile: RuntimeSpeedProfile::Balanced,
-        accelerator_mode: RuntimeAcceleratorMode::Auto,
+        accelerator_mode: RuntimeAcceleratorMode::Cpu,
     };
 
     pub fn from_ids(speed_profile: &str, accelerator_mode: &str) -> Self {
@@ -214,22 +229,20 @@ struct GigaamConfig {
     n_fft: usize,
     center: bool,
     mel_scale: String,
-    subsampling_factor: usize,
     model_name: String,
 }
 
 impl Default for GigaamConfig {
     fn default() -> Self {
         Self {
-            sample_rate: 16_000,
+            sample_rate: SAMPLE_RATE,
             n_mels: 64,
             win_length: 320,
             hop_length: 160,
             n_fft: 320,
             center: false,
             mel_scale: "htk".to_string(),
-            subsampling_factor: 4,
-            model_name: "v3_e2e_ctc".to_string(),
+            model_name: "v3_e2e_rnnt".to_string(),
         }
     }
 }
@@ -258,7 +271,6 @@ impl GigaamConfig {
                 "n_fft" => parse_into(&mut config.n_fft, value),
                 "center" => parse_into(&mut config.center, value),
                 "mel_scale" => config.mel_scale = value.to_string(),
-                "subsampling_factor" => parse_into(&mut config.subsampling_factor, value),
                 "model_name" => config.model_name = value.to_string(),
                 _ => {}
             }
@@ -374,89 +386,56 @@ impl GigaamFrontend {
     }
 }
 
+/// LSTM state (h, c) of the RNN-T prediction network.
+type PredictorState = [Vec<f32>; 2];
+
 pub struct GigaamModel {
-    session: Session,
+    encoder: Session,
+    decoder: Session,
+    joint: Session,
     frontend: GigaamFrontend,
     vocab: Vec<String>,
     blank_idx: usize,
-    subsampling_factor: usize,
-    features_input_name: String,
-    feature_lengths_input_name: String,
-    logits_output_name: String,
     provider_summary: String,
 }
 
 impl GigaamModel {
     pub fn load(model_dir: &Path, runtime_options: RuntimeOptions) -> Result<Self> {
-        let model_path = MODEL_FILENAMES
-            .iter()
-            .map(|filename| model_dir.join(filename))
-            .find(|path| path.exists())
-            .ok_or_else(|| {
-                anyhow!(
-                    "Missing GigaAM model file in {}. Expected one of: {}",
-                    model_dir.display(),
-                    MODEL_FILENAMES.join(", ")
-                )
-            })?;
         let vocab_content = read_model_file(&model_dir.join(VOCAB_FILENAME), "vocab")?;
         let (vocab, blank_idx) = parse_vocab_content(&vocab_content)?;
         let config = GigaamConfig::from_yaml(&read_model_file(&model_dir.join(CONFIG_FILENAME), "config")?);
-        if config.sample_rate != 16_000 {
+        if config.sample_rate != SAMPLE_RATE {
             bail!(
-                "Unsupported GigaAM sample rate {} Hz; the IME provides 16000 Hz PCM input",
+                "Unsupported GigaAM sample rate {} Hz; the IME provides {SAMPLE_RATE} Hz PCM input",
                 config.sample_rate
             );
         }
         let frontend = GigaamFrontend::from_config(&config)?;
 
         let runtime_plan = SessionRuntimePlan::from_runtime_options(runtime_options);
-        let session = Session::builder()?
+        let encoder_path = existing_model_file(model_dir, ENCODER_FILENAME)?;
+        let encoder = Session::builder()?
             .with_optimization_level(GraphOptimizationLevel::Level3)?
             .with_intra_threads(runtime_plan.intra_threads)?
             .with_inter_threads(runtime_plan.inter_threads)?
             .with_execution_providers(runtime_plan.providers)?
             .with_parallel_execution(runtime_plan.parallel_execution)?
-            .commit_from_file(&model_path)
+            .commit_from_file(&encoder_path)
             .with_context(|| {
-                format!("Failed to initialize ONNX Runtime session: {}", model_path.display())
+                format!("Failed to initialize ONNX Runtime session: {}", encoder_path.display())
             })?;
 
-        // Prefer the known tensor names; fall back to the first input of the expected rank.
-        let find_input = |name: &str, rank: usize| {
-            session
-                .inputs
-                .iter()
-                .find(|input| input.name == name)
-                .or_else(|| {
-                    session.inputs.iter().find(|input| {
-                        input.input_type.tensor_shape().is_some_and(|shape| shape.len() == rank)
-                    })
-                })
-                .map(|input| input.name.clone())
-        };
-        let features_input_name = find_input("features", 3)
-            .ok_or_else(|| anyhow!("Failed to determine GigaAM features input"))?;
-        let feature_lengths_input_name = find_input("feature_lengths", 1)
-            .ok_or_else(|| anyhow!("Failed to determine GigaAM feature lengths input"))?;
-        let logits_output_name = session
-            .outputs
-            .iter()
-            .find(|output| output.name == "log_probs" || output.name == "logits")
-            .or_else(|| session.outputs.first())
-            .map(|output| output.name.clone())
-            .ok_or_else(|| anyhow!("Failed to determine GigaAM logits output"))?;
-
         Ok(Self {
-            session,
+            encoder,
+            decoder: load_step_session(model_dir, DECODER_FILENAME)?,
+            joint: load_step_session(model_dir, JOINT_FILENAME)?,
             frontend,
             vocab,
             blank_idx,
-            subsampling_factor: config.subsampling_factor.max(1),
-            features_input_name,
-            feature_lengths_input_name,
-            logits_output_name,
-            provider_summary: runtime_plan.provider_summary,
+            provider_summary: format!(
+                "{}; decoder+joint=CPU(1 thread)",
+                runtime_plan.provider_summary
+            ),
         })
     }
 
@@ -464,49 +443,226 @@ impl GigaamModel {
         let total_start = Instant::now();
         let mut timings = NativeTranscriptionTimings::default();
 
-        let feature_start = Instant::now();
-        let (features, feature_length) = self.frontend.extract_features(samples)?;
-        timings.feature_extraction_ms = feature_start.elapsed().as_millis();
-
-        let text = if feature_length == 0 {
-            String::new()
-        } else {
-            let feature_lengths = Array1::from_vec(vec![feature_length]);
-            let inputs = inputs![
-                self.features_input_name.as_str() => TensorRef::from_array_view(features.view())?,
-                self.feature_lengths_input_name.as_str() => TensorRef::from_array_view(feature_lengths.view())?,
-            ];
-
-            let ort_start = Instant::now();
-            let outputs = self.session.run(inputs)?;
-            timings.ort_run_ms = ort_start.elapsed().as_millis();
-
-            let decode_start = Instant::now();
-            let logits = outputs
-                .get(self.logits_output_name.as_str())
-                .ok_or_else(|| {
-                    anyhow!(
-                        "GigaAM output '{}' not found in inference outputs",
-                        self.logits_output_name
-                    )
-                })?
-                .try_extract_array::<f32>()?
-                .into_dimensionality::<Ix3>()?;
-
-            let encoded_len = ((feature_length - 1) / self.subsampling_factor as i64 + 1).max(0) as usize;
-            let token_ids = ctc_greedy_decode_ids(logits, encoded_len, self.blank_idx);
-            let text = decode_token_ids_to_text(&token_ids, &self.vocab);
-            timings.decode_ms = decode_start.elapsed().as_millis();
-            text
-        };
+        let mut pieces = Vec::new();
+        for bounds in segment_boundaries(samples).windows(2) {
+            let text = self.transcribe_segment(&samples[bounds[0]..bounds[1]], &mut timings)?;
+            if !text.is_empty() {
+                pieces.push(text);
+            }
+        }
 
         timings.total_ms = total_start.elapsed().as_millis();
         Ok(NativeTranscriptionReport {
-            text,
+            text: join_pieces(&pieces),
             timings,
             provider_summary: self.provider_summary.clone(),
         })
     }
+
+    /// Encodes one piece of at most SEGMENT_MAX_SECONDS and decodes it greedily.
+    fn transcribe_segment(
+        &mut self,
+        samples: &[f32],
+        timings: &mut NativeTranscriptionTimings,
+    ) -> Result<String> {
+        let feature_start = Instant::now();
+        let (features, feature_length) = self.frontend.extract_features(samples)?;
+        timings.feature_extraction_ms += feature_start.elapsed().as_millis();
+        if feature_length == 0 {
+            return Ok(String::new());
+        }
+
+        let ort_start = Instant::now();
+        let feature_lengths = Array1::from_vec(vec![feature_length]);
+        let outputs = self.encoder.run(inputs![
+            "audio_signal" => TensorRef::from_array_view(features.view())?,
+            "length" => TensorRef::from_array_view(feature_lengths.view())?,
+        ])?;
+        let (shape, encoded) = output_tensor::<f32>(&outputs, "encoded")?;
+        let (_, encoded_len) = output_tensor::<i32>(&outputs, "encoded_len")?;
+        let (dim, frames) = match shape[..] {
+            [1, dim, frames] => (dim as usize, frames as usize),
+            _ => bail!("Unexpected GigaAM encoder output shape {shape:?}"),
+        };
+        let used_frames = encoded_len.first().map_or(0, |&len| len.max(0) as usize).min(frames);
+        // [1, dim, frames] -> frame-major, so each frame is one contiguous slice for the joint.
+        let frame_major: Vec<f32> = ArrayView3::from_shape((1, dim, frames), encoded)?
+            .slice(s![0, .., ..used_frames])
+            .t()
+            .iter()
+            .copied()
+            .collect();
+        drop(outputs);
+        timings.ort_run_ms += ort_start.elapsed().as_millis();
+
+        let decode_start = Instant::now();
+        let token_ids = self.greedy_decode(&frame_major, dim)?;
+        let text = decode_token_ids_to_text(&token_ids, &self.vocab);
+        timings.decode_ms += decode_start.elapsed().as_millis();
+        Ok(text)
+    }
+
+    /// Greedy RNN-T decoding, step for step as onnx-asr `_AsrWithTransducerDecoding`.
+    fn greedy_decode(&mut self, frame_major: &[f32], dim: usize) -> Result<Vec<usize>> {
+        let frame_count = frame_major.len() / dim.max(1);
+        let mut token_ids = Vec::new();
+        // `state` is the predictor state before the last emitted token; the decoder output and
+        // the state after that token are computed once and reused until the next emission.
+        let mut state: PredictorState = [vec![0.0; PRED_HIDDEN], vec![0.0; PRED_HIDDEN]];
+        let (mut dec, mut next_state) = run_decoder(&mut self.decoder, self.blank_idx, &state)?;
+
+        let (mut frame, mut emitted) = (0, 0);
+        while frame < frame_count {
+            let token = run_joint(&mut self.joint, &frame_major[frame * dim..][..dim], &dec)?;
+            if token != self.blank_idx {
+                token_ids.push(token);
+                emitted += 1;
+                state = next_state;
+                (dec, next_state) = run_decoder(&mut self.decoder, token, &state)?;
+            }
+            if token == self.blank_idx || emitted == MAX_TOKENS_PER_STEP {
+                frame += 1;
+                emitted = 0;
+            }
+        }
+        Ok(token_ids)
+    }
+}
+
+/// The decoder and joint run once per token or frame on tiny inputs, where accelerator
+/// dispatch and thread pools cost more than the math, so they stay on one CPU thread.
+fn load_step_session(model_dir: &Path, filename: &str) -> Result<Session> {
+    let path = existing_model_file(model_dir, filename)?;
+    Session::builder()?
+        .with_optimization_level(GraphOptimizationLevel::Level3)?
+        .with_intra_threads(1)?
+        .with_inter_threads(1)?
+        .commit_from_file(&path)
+        .with_context(|| format!("Failed to initialize ONNX Runtime session: {}", path.display()))
+}
+
+fn existing_model_file(model_dir: &Path, filename: &str) -> Result<std::path::PathBuf> {
+    let path = model_dir.join(filename);
+    if !path.exists() {
+        bail!("Missing GigaAM model file: {}", path.display());
+    }
+    Ok(path)
+}
+
+fn output_tensor<'o, T: ort::tensor::PrimitiveTensorElementType>(
+    outputs: &'o SessionOutputs<'_>,
+    name: &str,
+) -> Result<(&'o ort::tensor::Shape, &'o [T])> {
+    Ok(outputs
+        .get(name)
+        .ok_or_else(|| anyhow!("GigaAM output '{name}' not found in inference outputs"))?
+        .try_extract_tensor::<T>()?)
+}
+
+/// Feeds `token` to the prediction network; returns its output and the state after the token.
+fn run_decoder(
+    session: &mut Session,
+    token: usize,
+    state: &PredictorState,
+) -> Result<(Vec<f32>, PredictorState)> {
+    let token = Array2::from_elem((1, 1), token as i64);
+    let shape = (1, 1, PRED_HIDDEN);
+    let outputs = session.run(inputs![
+        "x" => TensorRef::from_array_view(token.view())?,
+        "h.1" => TensorRef::from_array_view(ArrayView3::from_shape(shape, &state[0][..])?)?,
+        "c.1" => TensorRef::from_array_view(ArrayView3::from_shape(shape, &state[1][..])?)?,
+    ])?;
+    let take = |name: &str| output_tensor::<f32>(&outputs, name).map(|(_, values)| values.to_vec());
+    Ok((take("dec")?, [take("h")?, take("c")?]))
+}
+
+/// Scores every token for one encoder frame and returns the best one.
+fn run_joint(session: &mut Session, frame: &[f32], dec: &[f32]) -> Result<usize> {
+    let outputs = session.run(inputs![
+        "enc" => TensorRef::from_array_view(ArrayView3::from_shape((1, frame.len(), 1), frame)?)?,
+        "dec" => TensorRef::from_array_view(ArrayView3::from_shape((1, dec.len(), 1), dec)?)?,
+    ])?;
+    let (_, logits) = output_tensor::<f32>(&outputs, "joint")?;
+    logits
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(index, _)| index)
+        .ok_or_else(|| anyhow!("GigaAM joint returned no scores"))
+}
+
+/// Joins piece texts with spaces. The model starts every piece with a capital letter, also where
+/// the cut fell inside a sentence; when the previous piece ends without . ! ? or …, that capital
+/// becomes lowercase. A word whose second letter is also uppercase (an acronym) stays as it is.
+/// GigaamImeService.joinPieces applies the same rule to pieces transcribed in separate calls.
+fn join_pieces(pieces: &[String]) -> String {
+    let mut joined = String::new();
+    for piece in pieces.iter().map(|piece| piece.trim()).filter(|piece| !piece.is_empty()) {
+        if joined.is_empty() {
+            joined.push_str(piece);
+            continue;
+        }
+        let continues_sentence = !joined.ends_with(['.', '!', '?', '…']);
+        joined.push(' ');
+        let mut chars = piece.chars();
+        match (chars.next(), chars.next()) {
+            (Some(first), second)
+                if continues_sentence && first.is_uppercase() && !second.is_some_and(char::is_uppercase) =>
+            {
+                joined.extend(first.to_lowercase());
+                joined.push_str(&piece[first.len_utf8()..]);
+            }
+            _ => joined.push_str(piece),
+        }
+    }
+    joined
+}
+
+/// End of the first piece that [`segment_boundaries`] cuts from every recording that starts with
+/// `samples`, so it can be transcribed while recording goes on. None while that cut still depends
+/// on audio not yet recorded (less than SEGMENT_MAX + SEGMENT_MIN seconds).
+pub fn settled_first_piece(samples: &[f32]) -> Option<usize> {
+    if samples.len() < (SEGMENT_MAX_SECONDS + SEGMENT_MIN_SECONDS) * SAMPLE_RATE {
+        return None;
+    }
+    segment_boundaries(samples).get(1).copied()
+}
+
+/// Sample positions `[0, cuts.., len]`. Audio up to SEGMENT_MAX_SECONDS stays whole; longer
+/// audio is cut where the mean energy over PAUSE_WINDOW_FRAMES is lowest, so every piece lasts
+/// SEGMENT_MIN..=SEGMENT_MAX seconds.
+fn segment_boundaries(samples: &[f32]) -> Vec<usize> {
+    const HOP: usize = SAMPLE_RATE / 100;
+    let (max_len, min_len) = (SEGMENT_MAX_SECONDS * SAMPLE_RATE, SEGMENT_MIN_SECONDS * SAMPLE_RATE);
+    let mut bounds = vec![0];
+    if samples.len() > max_len {
+        // Prefix sums of 10 ms frame energies give any window's mean in O(1).
+        let mut prefix = vec![0.0_f64];
+        for frame in samples.chunks_exact(HOP) {
+            let energy: f64 = frame.iter().map(|&x| f64::from(x) * f64::from(x)).sum();
+            prefix.push(prefix[prefix.len() - 1] + energy / HOP as f64);
+        }
+        let frame_count = prefix.len() - 1;
+        let window_mean = |center: usize| {
+            let from = center.saturating_sub(PAUSE_WINDOW_FRAMES / 2);
+            let to = (center + PAUSE_WINDOW_FRAMES / 2).min(frame_count);
+            (prefix[to] - prefix[from]) / (to - from).max(1) as f64
+        };
+
+        let mut start = 0;
+        while samples.len() - start > max_len {
+            // The rest after a cut must also last SEGMENT_MIN, so no piece is a sliver.
+            let first = (start + min_len) / HOP;
+            let last = (start + max_len).min(samples.len() - min_len) / HOP;
+            let cut = (first..last)
+                .min_by(|&a, &b| window_mean(a).total_cmp(&window_mean(b)))
+                .unwrap_or(first);
+            start = cut * HOP;
+            bounds.push(start);
+        }
+    }
+    bounds.push(samples.len());
+    bounds
 }
 
 fn read_model_file(path: &Path, kind: &str) -> Result<String> {
@@ -551,33 +707,6 @@ fn parse_vocab_content(content: &str) -> Result<(Vec<String>, usize)> {
     }
 
     Ok((vocab, blank_idx))
-}
-
-fn ctc_greedy_decode_ids(
-    logits: ArrayView3<'_, f32>,
-    encoded_len: usize,
-    blank_idx: usize,
-) -> Vec<usize> {
-    let usable_steps = encoded_len.min(logits.shape()[1]);
-
-    let mut token_ids = Vec::with_capacity(usable_steps);
-    let mut prev_token = blank_idx;
-
-    for frame_idx in 0..usable_steps {
-        let best_idx = logits
-            .slice(s![0, frame_idx, ..])
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
-            .map_or(blank_idx, |(idx, _)| idx);
-
-        if best_idx != blank_idx && best_idx != prev_token {
-            token_ids.push(best_idx);
-        }
-        prev_token = best_idx;
-    }
-
-    token_ids
 }
 
 fn decode_token_ids_to_text(token_ids: &[usize], vocab: &[String]) -> String {
@@ -707,22 +836,84 @@ mod tests {
     }
 
     #[test]
-    fn ctc_decoder_collapses_repeats_and_removes_blank() -> Result<()> {
-        let logits = Array3::from_shape_vec(
-            (1, 6, 4),
-            vec![
-                0.0, 5.0, 1.0, -1.0, // token 1
-                0.0, 4.0, 1.0, -1.0, // repeated token 1 (collapsed)
-                0.0, 1.0, 0.0, 3.0, // blank
-                0.0, 6.0, 0.0, -1.0, // token 1 again (kept because blank separated)
-                0.0, 1.0, 5.0, -1.0, // token 2
-                0.0, 1.0, 4.0, -1.0, // repeated token 2 (collapsed)
-            ],
-        )?;
+    fn pieces_cut_inside_a_sentence_join_in_lowercase() {
+        let join = |pieces: &[&str]| join_pieces(&pieces.iter().map(|p| p.to_string()).collect::<Vec<_>>());
+        // Cases from a real 182 s recording, cut inside sentences.
+        assert_eq!(join(&["Я сначала подумал на рис", "Он начал есть."]), "Я сначала подумал на рис он начал есть.");
+        assert_eq!(join(&["Интересно, что", "Утром показатели выросли."]), "Интересно, что утром показатели выросли.");
+        assert_eq!(join(&["И я три раза", "Я промываю"]), "И я три раза я промываю");
+        // Sentence ends, acronyms, empty pieces and spaces.
+        assert_eq!(join(&["Готово.", "Новая фраза"]), "Готово. Новая фраза");
+        assert_eq!(join(&["Правда?", "Да"]), "Правда? Да");
+        assert_eq!(join(&["данные от", "ВОЗ пришли"]), "данные от ВОЗ пришли");
+        assert_eq!(join(&[" Первый ", "", "  ", "Второй"]), "Первый второй");
+        assert_eq!(join(&["Цена", "15 рублей"]), "Цена 15 рублей");
+        assert_eq!(join(&[]), "");
+    }
 
-        let token_ids = ctc_greedy_decode_ids(logits.view(), 6, 3);
-        assert_eq!(token_ids, vec![1, 1, 2]);
-        Ok(())
+    #[test]
+    fn short_audio_stays_whole() {
+        let samples = vec![0.1_f32; SEGMENT_MAX_SECONDS * SAMPLE_RATE];
+        assert_eq!(segment_boundaries(&samples), vec![0, samples.len()]);
+        assert_eq!(segment_boundaries(&[]), vec![0, 0]);
+    }
+
+    #[test]
+    fn long_audio_is_cut_in_pauses_within_length_limits() {
+        // 65 s of "speech" with 0.5 s pauses at 14 s, 31 s and 47 s, and a fainter dip at 25 s.
+        let mut samples = vec![0.3_f32; 65 * SAMPLE_RATE];
+        let mut quiet = |at: f32, level: f32| {
+            let from = (at * SAMPLE_RATE as f32) as usize;
+            samples[from..from + SAMPLE_RATE / 2].fill(level);
+        };
+        quiet(14.0, 0.0);
+        quiet(25.0, 0.1);
+        quiet(31.0, 0.0);
+        quiet(47.0, 0.0);
+
+        let bounds = segment_boundaries(&samples);
+        let seconds: Vec<f32> = bounds.iter().map(|&b| b as f32 / SAMPLE_RATE as f32).collect();
+        assert_eq!(bounds.len(), 5, "cuts at {seconds:?}");
+        for (cut, pause) in seconds[1..4].iter().zip([14.0, 31.0, 47.0]) {
+            assert!((cut - pause).abs() < 0.5, "cut {cut} s misses the pause at {pause} s");
+        }
+        for piece in bounds.windows(2) {
+            let length = piece[1] - piece[0];
+            assert!(length >= SEGMENT_MIN_SECONDS * SAMPLE_RATE - SAMPLE_RATE / 100);
+            assert!(length <= SEGMENT_MAX_SECONDS * SAMPLE_RATE);
+        }
+    }
+
+    #[test]
+    fn pieces_taken_while_recording_match_cuts_of_whole_recording() {
+        // 3 minutes of speech-like energy with a pause every 7.3 s and a dip every 4.1 s.
+        let samples: Vec<f32> = (0..180 * SAMPLE_RATE)
+            .map(|n| {
+                let t = n as f32 / SAMPLE_RATE as f32;
+                let pause = t % 7.3 < 0.4;
+                let dip = t % 4.1 < 0.3;
+                let level = if pause { 0.0 } else if dip { 0.1 } else { 0.3 };
+                level * (1.0 + 0.5 * (t * 997.0).sin())
+            })
+            .collect();
+        let whole = segment_boundaries(&samples);
+
+        // Recording grows by 0.25 s; each settled piece is taken as soon as it is settled.
+        let mut streamed = vec![0];
+        let mut recorded = 0;
+        while recorded < samples.len() {
+            recorded = (recorded + SAMPLE_RATE / 4).min(samples.len());
+            let start = streamed[streamed.len() - 1];
+            if let Some(end) = settled_first_piece(&samples[start..recorded]) {
+                streamed.push(start + end);
+            }
+        }
+        // After stop, the rest is cut as one recording.
+        let start = streamed[streamed.len() - 1];
+        streamed.extend(segment_boundaries(&samples[start..]).iter().skip(1).map(|b| start + b));
+
+        assert_eq!(streamed, whole);
+        assert!(settled_first_piece(&samples[..29 * SAMPLE_RATE]).is_none());
     }
 
     #[test]
@@ -737,7 +928,7 @@ mod tests {
     #[test]
     fn config_parser_reads_nested_keys_and_ignores_comments() {
         let config = GigaamConfig::from_yaml(
-            "model_name: v3_e2e_ctc\npreprocessor:\n  sample_rate: 16000 # Hz\n  features: 64\n  \
+            "model_name: v3_e2e_rnnt\npreprocessor:\n  sample_rate: 16000 # Hz\n  features: 64\n  \
              win_length: 320\n  hop_length: 160\n  n_fft: 320\n  center: false\n  mel_scale: htk\n\
              encoder:\n  subsampling_factor: 4\n  n_fft_typo: 999\n",
         );
@@ -746,7 +937,7 @@ mod tests {
         assert_eq!(config.n_fft, 320);
         assert!(!config.center);
         assert_eq!(config.mel_scale, "htk");
-        assert_eq!(config.subsampling_factor, 4);
+        assert_eq!(config.model_name, "v3_e2e_rnnt");
     }
 
     #[test]
@@ -855,8 +1046,13 @@ mod tests {
         let wav_path = std::env::var("GIGAAM_TEST_WAV_PATH")
             .context("GIGAAM_TEST_WAV_PATH is required for integration test")?;
         let expected_substring = std::env::var("GIGAAM_TEST_EXPECT_CONTAINS").unwrap_or_default();
+        // Same ids as the app settings, e.g. "fast" and "cpu"; unset means the defaults.
+        let options = RuntimeOptions::from_ids(
+            &std::env::var("GIGAAM_TEST_SPEED_PROFILE").unwrap_or_default(),
+            &std::env::var("GIGAAM_TEST_ACCELERATOR").unwrap_or_default(),
+        );
 
-        let mut model = GigaamModel::load(Path::new(&model_dir), RuntimeOptions::default())?;
+        let mut model = GigaamModel::load(Path::new(&model_dir), options)?;
         let samples = read_wav_mono_f32(Path::new(&wav_path))?;
         for run in 1..=3 {
             let report = model.transcribe_samples(&samples)?;
