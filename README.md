@@ -6,7 +6,7 @@ An experimental Android keyboard for offline Russian dictation using GigaAM v3 e
 
 ## Status
 
-Beta 0.1.2 fixes keyboard switching on Android 8. Debug/release builds and lint passed, with 71 lint warnings remaining. The user confirmed that int8 dictation inserted text on an Infinix X6833B. See the [verification report](docs/verification.md) for the tested versions and limits; Android 8 hardware was not verified. The switch from e2e-CTC to e2e-RNNT was checked on the same phone, except the in-app model download.
+Beta 0.2.0 switches to GigaAM v3 e2e-RNNT, keeps long dictation complete by cutting it at pauses, and transcribes pieces while recording. It was checked on an Infinix X6833B (Helio G99): builds and lint pass (0 errors, 55 warnings), Rust tests pass on the phone, and the user confirmed live dictation. See the [verification report](docs/verification.md) for measurements and limits; Android 8 hardware was not verified.
 
 ## Features
 

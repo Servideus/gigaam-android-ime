@@ -128,3 +128,9 @@ The hardware-acceleration switch and the speed profiles are gone from settings, 
 Build: `scripts/verify-build.ps1` passed, lint 0 errors, 55 warnings. Rust unit tests on the phone: 9 of 9 passed. Integration test, 9.8 s phrase: 1.00–1.17 s per run, same text as before. The settings screen shows the model status, trailing space, warmup, and the download, delete and keyboard buttons.
 
 Keyboard dictation, TTS from PC speakers, timing from the app log (stop tap to text inserted): 11 s phrase 1.71 s and 1.37 s; 61 s recording 2.47 s. All texts complete.
+
+# Verification: 2026-11-14 (release 0.2.0)
+
+Version 0.2.0, versionCode 4. `scripts/verify-build.ps1` passed: lint 0 errors, 55 warnings. The debug APK is signed with the Android debug key (certificate SHA-256 `6432c067…be42aa`) and installed over the previous debug build on the Infinix X6833B.
+
+In-app model download, checked for the first time: "Удалить модель", then "Скачать модель" in settings. All five RNNT files downloaded from Hugging Face over the phone's network; their SHA-256 on the device matched `ModelSpec.kt`; the app then warmed the model and showed it as ready. A 61 s keyboard dictation afterwards came out complete, 2.67 s after stop.
