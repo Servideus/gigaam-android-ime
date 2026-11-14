@@ -1,6 +1,15 @@
 package com.servideus.gigaamime.nativebridge
 
+import com.servideus.gigaamime.data.RuntimeSettings
+
+/**
+ * JNI entry points of `libgigaam_core.so`. All calls block until the native engine lock is free,
+ * so call them off the main thread.
+ */
 object GigaamNativeBridge {
+    /** Prefix of the error strings that [transcribe] returns instead of text. */
+    const val TRANSCRIBE_ERROR_PREFIX = "GigaAM error:"
+
     private val loadError: Throwable? = runCatching {
         System.loadLibrary("onnxruntime")
         System.loadLibrary("gigaam_core")
@@ -8,28 +17,24 @@ object GigaamNativeBridge {
 
     fun isAvailable(): Boolean = loadError == null
 
-    fun loadErrorSummary(): String {
-        return loadError?.message ?: "ok"
-    }
+    fun loadErrorSummary(): String = loadError?.message ?: "ok"
 
-    fun isModelValid(modelsRootDir: String, modelId: String): Boolean {
-        ensureAvailable()
-        return nativeIsModelValid(modelsRootDir, modelId)
-    }
-
+    /** Resamples to 16 kHz natively when [sampleRate] differs. */
     fun transcribe(modelsRootDir: String, modelId: String, pcm16: ShortArray, sampleRate: Int): String {
         ensureAvailable()
         return nativeTranscribe(modelsRootDir, modelId, pcm16, sampleRate)
     }
 
+    /** Loads the model if needed; runs one dummy pass only right after a fresh load. */
     fun warmup(modelsRootDir: String, modelId: String): String {
         ensureAvailable()
         return nativeWarmup(modelsRootDir, modelId)
     }
 
-    fun setRuntimeOptions(modelId: String, speedProfile: String, acceleratorMode: String): String {
+    /** Changed options drop the loaded session; the next call rebuilds it. */
+    fun setRuntimeOptions(settings: RuntimeSettings): String {
         ensureAvailable()
-        return nativeSetRuntimeOptions(modelId, speedProfile, acceleratorMode)
+        return nativeSetRuntimeOptions(settings.speedProfile.id, settings.acceleratorMode.id)
     }
 
     fun getLastProfilingSummary(): String {
@@ -44,12 +49,9 @@ object GigaamNativeBridge {
     }
 
     private fun ensureAvailable() {
-        if (!isAvailable()) {
-            throw IllegalStateException("Native core unavailable: ${loadErrorSummary()}")
-        }
+        check(isAvailable()) { "Native core unavailable: ${loadErrorSummary()}" }
     }
 
-    private external fun nativeIsModelValid(modelsRootDir: String, modelId: String): Boolean
     private external fun nativeTranscribe(
         modelsRootDir: String,
         modelId: String,
@@ -57,12 +59,7 @@ object GigaamNativeBridge {
         sampleRate: Int,
     ): String
     private external fun nativeWarmup(modelsRootDir: String, modelId: String): String
-    private external fun nativeSetRuntimeOptions(
-        modelId: String,
-        speedProfile: String,
-        acceleratorMode: String,
-    ): String
+    private external fun nativeSetRuntimeOptions(speedProfile: String, acceleratorMode: String): String
     private external fun nativeGetLastProfilingSummary(): String
-
     private external fun nativeUnload()
 }

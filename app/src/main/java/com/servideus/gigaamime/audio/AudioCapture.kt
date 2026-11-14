@@ -7,9 +7,8 @@ import android.media.MediaRecorder
 import java.util.Collections
 import kotlin.math.max
 
-class AudioCapture(
-    private val onChunkCaptured: ((chunk: ShortArray) -> Unit)? = null,
-) {
+/** Records 16-bit mono PCM until [stop]; falls back to 48/44.1 kHz where 16 kHz is unsupported. */
+class AudioCapture {
     private val chunks = Collections.synchronizedList(mutableListOf<ShortArray>())
     @Volatile
     private var running = false
@@ -36,9 +35,7 @@ class AudioCapture(
             while (running) {
                 val read = record.read(buffer, 0, buffer.size)
                 if (read > 0) {
-                    val chunk = buffer.copyOf(read)
-                    chunks.add(chunk)
-                    onChunkCaptured?.invoke(chunk)
+                    chunks.add(buffer.copyOf(read))
                 }
             }
         }.apply {
@@ -47,6 +44,7 @@ class AudioCapture(
         }
     }
 
+    /** Blocks until the read thread ends (up to 1.5 s), so call it off the main thread. */
     fun stop(): ShortArray {
         if (!running) {
             return ShortArray(0)

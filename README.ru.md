@@ -68,7 +68,7 @@ cargo install cargo-ndk
 
 Gradle сам вызывает сборку Rust на этапе `preBuild`.
 
-На Windows задайте `ANDROID_HOME` на свой SDK и `ANDROID_NDK_HOME` на его каталог `ndk/27.2.12479018`. Для полной проверки используйте:
+Путь к SDK берётся из `local.properties` (`sdk.dir`). Если `ANDROID_NDK_HOME` не задан, сборка Rust использует NDK `27.2.12479018` из этого SDK. Для полной проверки используйте:
 
 ```powershell
 ./scripts/verify-build.ps1
@@ -76,10 +76,10 @@ Gradle сам вызывает сборку Rust на этапе `preBuild`.
 
 Скрипт собирает debug/release и запускает lint. Он задаёт отдельный временный каталог сокетов Java, чтобы обойти ошибку `Unable to establish loopback connection` при коротком имени Windows в `TEMP`, и восстанавливает переменную окружения после проверки.
 
-### Вариант 2: вручную собрать Rust `.so`, потом Gradle
+### Вариант 2: отдельно собрать Rust `.so`, потом Gradle
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build-rust-android.ps1 -Abi arm64-v8a -Profile release
+.\gradlew.bat :app:buildRustCore -PrustProfile=release
 .\gradlew.bat assembleDebug -PskipRustBuild=true
 ```
 
@@ -114,7 +114,7 @@ APK после сборки:
 
 - `app/` — Android-приложение (UI, IME-сервис, настройки, загрузка моделей).
 - `native/gigaam_core/` — Rust-ядро распознавания.
-- `scripts/build-rust-android.ps1` — скрипт сборки Rust-библиотек под Android.
+- Задача Gradle `buildRustCore` — сборка Rust-библиотеки под Android через `cargo-ndk`.
 
 ## Ограничения MVP
 

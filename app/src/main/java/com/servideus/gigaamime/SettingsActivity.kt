@@ -5,7 +5,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.Settings
+import android.text.format.Formatter
 import android.util.Log
+import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.ProgressBar
@@ -74,7 +76,6 @@ class SettingsActivity : AppCompatActivity() {
         modelRepository = ModelRepository(applicationContext)
         selectionStore = ModelSelectionStore(applicationContext)
         selectedModel = selectionStore.getActiveModel()
-        selectionStore.setAutoStopEnabled(false)
 
         bindViews()
         setDownloadStatus(getString(R.string.status_download_idle))
@@ -143,12 +144,8 @@ class SettingsActivity : AppCompatActivity() {
 
         switchWarmup.setOnCheckedChangeListener { _, checked ->
             selectionStore.setWarmupEnabled(checked)
-            if (checked) {
-                lifecycleScope.launch {
-                    maybeWarmupModel(selectionStore.getActiveModel())
-                }
-            } else {
-                runCatching { GigaamNativeBridge.unload() }
+            lifecycleScope.launch {
+                if (checked) maybeWarmupModel(selectionStore.getActiveModel()) else unloadNativeModel()
             }
             refreshUi()
         }
@@ -166,6 +163,9 @@ class SettingsActivity : AppCompatActivity() {
                 setBusy(true)
                 runCatching {
                     modelRepository.deleteModel(selectedModel)
+                    if (selectedModel == selectionStore.getActiveModel()) {
+                        unloadNativeModel()
+                    }
                     setDownloadStatus(getString(R.string.status_delete_success, selectedModel.displayName))
                 }.onFailure { error ->
                     setDownloadStatus(getString(R.string.status_error, error.message ?: "delete failed"))
@@ -257,20 +257,20 @@ class SettingsActivity : AppCompatActivity() {
             return
         }
         val runtimeSettings = selectionStore.getRuntimeSettings()
-        val activeModel = selectionStore.getActiveModel()
         lifecycleScope.launch(Dispatchers.Default) {
             runCatching {
-                GigaamNativeBridge.setRuntimeOptions(
-                    modelId = activeModel.id,
-                    speedProfile = runtimeSettings.speedProfile.id,
-                    acceleratorMode = runtimeSettings.acceleratorMode.id,
-                )
+                GigaamNativeBridge.setRuntimeOptions(runtimeSettings)
             }.onFailure {
                 if (DEBUG_LOGS) {
                     Log.w(TAG, "Unable to apply runtime options: ${it.message}")
                 }
             }
         }
+    }
+
+    /** Native calls wait for the engine lock, which a running transcription holds, so keep them off the UI thread. */
+    private suspend fun unloadNativeModel() {
+        withContext(Dispatchers.Default) { runCatching { GigaamNativeBridge.unload() } }
     }
 
     private fun refreshUi() {
@@ -313,18 +313,7 @@ class SettingsActivity : AppCompatActivity() {
                 this@SettingsActivity,
                 Manifest.permission.RECORD_AUDIO,
             ) == PackageManager.PERMISSION_GRANTED
-            btnGrantMic.isEnabled = !hasMicPermission && !busy
-            btnDownload.isEnabled = !busy
-            btnDelete.isEnabled = selectedInstalled && !busy
-            btnSetActive.isEnabled = selectedInstalled && !busy
-            radioModelInt8.isEnabled = !busy
-            radioModelFull.isEnabled = !busy
-            radioSpeedBalanced.isEnabled = !busy
-            radioSpeedFast.isEnabled = !busy
-            radioSpeedQuality.isEnabled = !busy
-            switchAppendTrailingSpace.isEnabled = !busy
-            switchHardwareAcceleration.isEnabled = !busy
-            switchWarmup.isEnabled = !busy
+            applyEnabledState(canGrantMic = !hasMicPermission, selectedInstalled = selectedInstalled)
         }
     }
 
@@ -344,20 +333,30 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    /** While busy everything is off; [refreshUi] re-enables the buttons that apply. */
     private fun setBusy(value: Boolean) {
         busy = value
-        btnDownload.isEnabled = !value
-        btnDelete.isEnabled = !value
-        btnSetActive.isEnabled = !value
-        btnGrantMic.isEnabled = !value
-        radioModelInt8.isEnabled = !value
-        radioModelFull.isEnabled = !value
-        radioSpeedBalanced.isEnabled = !value
-        radioSpeedFast.isEnabled = !value
-        radioSpeedQuality.isEnabled = !value
-        switchAppendTrailingSpace.isEnabled = !value
-        switchHardwareAcceleration.isEnabled = !value
-        switchWarmup.isEnabled = !value
+        applyEnabledState(canGrantMic = !value, selectedInstalled = !value)
+    }
+
+    private fun applyEnabledState(canGrantMic: Boolean, selectedInstalled: Boolean) {
+        val idle = !busy
+        btnGrantMic.isEnabled = canGrantMic && idle
+        btnDelete.isEnabled = selectedInstalled && idle
+        btnSetActive.isEnabled = selectedInstalled && idle
+        for (control in listOf<View>(
+            btnDownload,
+            radioModelInt8,
+            radioModelFull,
+            radioSpeedBalanced,
+            radioSpeedFast,
+            radioSpeedQuality,
+            switchAppendTrailingSpace,
+            switchHardwareAcceleration,
+            switchWarmup,
+        )) {
+            control.isEnabled = idle
+        }
     }
 
     private fun updateProgress(downloaded: Long, total: Long) {
@@ -367,26 +366,10 @@ class SettingsActivity : AppCompatActivity() {
         txtDownloadProgress.text = getString(
             R.string.status_download_percent,
             percent,
-            humanBytes(downloaded),
-            humanBytes(total),
+            Formatter.formatFileSize(this, downloaded),
+            Formatter.formatFileSize(this, total),
         )
         downloadStatusText = txtDownloadProgress.text.toString()
-    }
-
-    private fun humanBytes(bytes: Long): String {
-        if (bytes < 1024) {
-            return "$bytes B"
-        }
-        val kb = bytes / 1024.0
-        if (kb < 1024) {
-            return String.format("%.1f KB", kb)
-        }
-        val mb = kb / 1024.0
-        if (mb < 1024) {
-            return String.format("%.1f MB", mb)
-        }
-        val gb = mb / 1024.0
-        return String.format("%.2f GB", gb)
     }
 
     private fun setDownloadStatus(status: String) {

@@ -38,16 +38,12 @@
     <string name="ime_shift_off_desc">Shift выключен</string>
     <string name="ime_shift_on_desc">Shift включен</string>
 
-    <string name="ime_key_shift">\u21E7</string>
-    <string name="ime_key_shift_active">\u2B06</string>
-    <string name="ime_key_shift_locked">\u21EA</string>
     <string name="ime_key_backspace">\u232B</string>
     <string name="ime_key_symbols">\?123</string>
     <string name="ime_key_letters">АБВ</string>
     <string name="ime_key_language_ru">RU</string>
     <string name="ime_key_language_en">EN</string>
     <string name="ime_key_space_desc">Пробел</string>
-    <string name="ime_key_enter">\u21B5</string>
     <string name="ime_key_enter_desc">Ввод</string>
 
     <string name="ime_status_idle">Ожидание</string>

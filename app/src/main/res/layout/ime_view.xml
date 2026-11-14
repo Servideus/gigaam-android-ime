@@ -48,217 +48,189 @@
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/rowDigits"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
         android:orientation="horizontal">
 
         <Button
-            android:id="@+id/keyTop1"
             style="@style/ImeDigitKey"
             android:layout_weight="1"
             android:text="1" />
 
         <Button
-            android:id="@+id/keyTop2"
             style="@style/ImeDigitKey"
             android:layout_weight="1"
             android:text="2" />
 
         <Button
-            android:id="@+id/keyTop3"
             style="@style/ImeDigitKey"
             android:layout_weight="1"
             android:text="3" />
 
         <Button
-            android:id="@+id/keyTop4"
             style="@style/ImeDigitKey"
             android:layout_weight="1"
             android:text="4" />
 
         <Button
-            android:id="@+id/keyTop5"
             style="@style/ImeDigitKey"
             android:layout_weight="1"
             android:text="5" />
 
         <Button
-            android:id="@+id/keyTop6"
             style="@style/ImeDigitKey"
             android:layout_weight="1"
             android:text="6" />
 
         <Button
-            android:id="@+id/keyTop7"
             style="@style/ImeDigitKey"
             android:layout_weight="1"
             android:text="7" />
 
         <Button
-            android:id="@+id/keyTop8"
             style="@style/ImeDigitKey"
             android:layout_weight="1"
             android:text="8" />
 
         <Button
-            android:id="@+id/keyTop9"
             style="@style/ImeDigitKey"
             android:layout_weight="1"
             android:text="9" />
 
         <Button
-            android:id="@+id/keyTop10"
             style="@style/ImeDigitKey"
             android:layout_weight="1"
             android:text="0" />
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/rowLetters1"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal">
 
         <Button
-            android:id="@+id/keyRow1_1"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="й" />
 
         <Button
-            android:id="@+id/keyRow1_2"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="ц" />
 
         <Button
-            android:id="@+id/keyRow1_3"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="у" />
 
         <Button
-            android:id="@+id/keyRow1_4"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="к" />
 
         <Button
-            android:id="@+id/keyRow1_5"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="е" />
 
         <Button
-            android:id="@+id/keyRow1_6"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="н" />
 
         <Button
-            android:id="@+id/keyRow1_7"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="г" />
 
         <Button
-            android:id="@+id/keyRow1_8"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="ш" />
 
         <Button
-            android:id="@+id/keyRow1_9"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="щ" />
 
         <Button
-            android:id="@+id/keyRow1_10"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="з" />
 
         <Button
-            android:id="@+id/keyRow1_11"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="х" />
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/rowLetters2"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal">
 
         <Button
-            android:id="@+id/keyRow2_1"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="ф" />
 
         <Button
-            android:id="@+id/keyRow2_2"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="ы" />
 
         <Button
-            android:id="@+id/keyRow2_3"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="в" />
 
         <Button
-            android:id="@+id/keyRow2_4"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="а" />
 
         <Button
-            android:id="@+id/keyRow2_5"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="п" />
 
         <Button
-            android:id="@+id/keyRow2_6"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="р" />
 
         <Button
-            android:id="@+id/keyRow2_7"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="о" />
 
         <Button
-            android:id="@+id/keyRow2_8"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="л" />
 
         <Button
-            android:id="@+id/keyRow2_9"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="д" />
 
         <Button
-            android:id="@+id/keyRow2_10"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="ж" />
 
         <Button
-            android:id="@+id/keyRow2_11"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="э" />
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/rowLetters3"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal">
@@ -271,55 +243,46 @@
             android:src="@drawable/ic_shift_inactive_outline" />
 
         <Button
-            android:id="@+id/keyRow3_1"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="я" />
 
         <Button
-            android:id="@+id/keyRow3_2"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="ч" />
 
         <Button
-            android:id="@+id/keyRow3_3"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="с" />
 
         <Button
-            android:id="@+id/keyRow3_4"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="м" />
 
         <Button
-            android:id="@+id/keyRow3_5"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="и" />
 
         <Button
-            android:id="@+id/keyRow3_6"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="т" />
 
         <Button
-            android:id="@+id/keyRow3_7"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="ь" />
 
         <Button
-            android:id="@+id/keyRow3_8"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="б" />
 
         <Button
-            android:id="@+id/keyRow3_9"
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="ю" />

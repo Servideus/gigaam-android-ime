@@ -34,7 +34,7 @@ cargo install cargo-ndk
 rustup target add aarch64-linux-android
 ```
 
-On Windows, set `ANDROID_HOME` to your SDK and `ANDROID_NDK_HOME` to its `ndk/27.2.12479018` directory.
+The SDK path comes from `local.properties` (`sdk.dir`). If `ANDROID_NDK_HOME` is not set, the Rust build uses NDK `27.2.12479018` from that SDK.
 
 ```powershell
 .\gradlew.bat assembleDebug
@@ -48,10 +48,10 @@ Gradle invokes the Rust build during `preBuild`. For debug/release builds and li
 
 The verification script uses a temporary Java socket directory to avoid `Unable to establish loopback connection` with an 8.3 Windows TEMP path, then restores the environment.
 
-Alternatively, build the Rust library explicitly:
+Alternatively, build the Rust library on its own, then reuse it:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build-rust-android.ps1 -Abi arm64-v8a -Profile release
+.\gradlew.bat :app:buildRustCore -PrustProfile=release
 .\gradlew.bat assembleDebug -PskipRustBuild=true
 ```
 
@@ -68,7 +68,7 @@ Debug APK: `app/build/outputs/apk/debug/app-debug.apk`. The Gradle release APK i
 
 `-PskipRustBuild=true` skips Rust compilation; `-PrustAbi=arm64-v8a` selects the ABI; `-PrustProfile=release` or `debug` selects the Rust profile. Configuration is in [app/build.gradle.kts](app/build.gradle.kts).
 
-`app/` contains the Android UI, IME and model downloads. `native/gigaam_core/` contains inference. `scripts/build-rust-android.ps1` builds the Android native library.
+`app/` contains the Android UI, IME and model downloads. `native/gigaam_core/` contains inference. The `buildRustCore` Gradle task builds the Android native library with `cargo-ndk`.
 
 The primary target is `arm64-v8a`. Downloading models requires a network connection; transcription uses the installed local model.
 

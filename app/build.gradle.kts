@@ -29,9 +29,6 @@ android {
                 "proguard-rules.pro",
             )
         }
-        debug {
-            isMinifyEnabled = false
-        }
     }
 
     compileOptions {
@@ -41,18 +38,6 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
-    }
-
-    packaging {
-        jniLibs {
-            useLegacyPackaging = false
-        }
-    }
-
-    sourceSets {
-        getByName("main") {
-            jniLibs.srcDir("src/main/jniLibs")
-        }
     }
 
     ndkVersion = "27.2.12479018"
@@ -69,44 +54,38 @@ dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
 }
 
+val rustCrateDir = rootProject.file("native/gigaam_core")
+val jniLibsDir = file("src/main/jniLibs")
+// An IDE-launched Gradle may not see the shell PATH, so prefer rustup's install location.
+val cargoExecutable = (System.getenv("CARGO_HOME")?.let(::File) ?: File(System.getProperty("user.home"), ".cargo"))
+    .resolve("bin")
+    .let { bin -> listOf("cargo.exe", "cargo").map(bin::resolve).firstOrNull { it.isFile }?.path }
+    ?: "cargo"
+
 val buildRustCore by tasks.registering(Exec::class) {
     group = "build"
     description = "Build Rust native core for Android"
-    workingDir = rootProject.projectDir
+    onlyIf { !skipRustBuild.get() }
 
-    val isWindows = System.getProperty("os.name").lowercase().contains("windows")
-    val resolvedAbi = rustAbi.get()
-    val resolvedProfile = rustProfile.get()
-    val profileFlag = if (resolvedProfile == "release") "--release" else ""
-
-    if (isWindows) {
-        commandLine(
-            "powershell",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            rootProject.file("scripts/build-rust-android.ps1").absolutePath,
-            "-Abi",
-            resolvedAbi,
-            "-Profile",
-            resolvedProfile,
-        )
-    } else {
-        commandLine(
-            "bash",
-            "-lc",
-            "cargo ndk -t $resolvedAbi -o app/src/main/jniLibs build --manifest-path native/gigaam_core/Cargo.toml $profileFlag",
-        )
+    // cargo-ndk 4 reads Cargo.toml from the working directory and ignores --manifest-path.
+    workingDir = rustCrateDir
+    commandLine(
+        listOf(cargoExecutable, "ndk", "-t", rustAbi.get(), "-o", jniLibsDir.absolutePath, "build") +
+            if (rustProfile.get() == "release") listOf("--release") else emptyList(),
+    )
+    doFirst {
+        // Without ANDROID_NDK_HOME, use the NDK that AGP resolves from ndkVersion and sdk.dir.
+        if (System.getenv("ANDROID_NDK_HOME").isNullOrBlank()) {
+            environment("ANDROID_NDK_HOME", android.ndkDirectory.absolutePath)
+        }
     }
 
-    onlyIf { !skipRustBuild.get() }
     inputs.files(
-        fileTree(rootProject.file("native/gigaam_core/src")) {
-            include("**/*.rs")
-        },
-        rootProject.file("native/gigaam_core/Cargo.toml"),
+        fileTree(rustCrateDir.resolve("src")) { include("**/*.rs") },
+        rustCrateDir.resolve("Cargo.toml"),
+        rustCrateDir.resolve("Cargo.lock"),
     )
-    outputs.dir(file("src/main/jniLibs"))
+    outputs.dir(jniLibsDir)
 }
 
 tasks.named("preBuild").configure {
