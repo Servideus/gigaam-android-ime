@@ -35,6 +35,14 @@ class ModelRepository(context: Context) {
         getModelDir(model).deleteRecursively()
     }
 
+    /** Frees folders of models this version no longer offers (the earlier e2e-CTC builds). */
+    suspend fun deleteRetiredModels() = withContext(Dispatchers.IO) {
+        val knownIds = GigaamModel.entries.map { it.id }.toSet()
+        modelsRootDir.listFiles()
+            ?.filter { it.isDirectory && it.name !in knownIds }
+            ?.forEach { it.deleteRecursively() }
+    }
+
     /** Reports progress at most once per 0.1% so the UI thread is not flooded with updates. */
     suspend fun downloadModel(
         model: GigaamModel,

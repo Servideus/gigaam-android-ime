@@ -9,7 +9,7 @@ use std::ptr;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Instant;
 
-const MODEL_IDS: [&str; 2] = ["gigaam-v3-e2e-ctc-int8", "gigaam-v3-e2e-ctc"];
+const MODEL_IDS: [&str; 1] = ["gigaam-v3-e2e-rnnt-int8"];
 const TARGET_SAMPLE_RATE: usize = 16_000;
 
 struct EngineCache {
@@ -39,6 +39,22 @@ pub extern "system" fn Java_com_servideus_gigaamime_nativebridge_GigaamNativeBri
         Ok(text) => new_java_string(&mut env, text),
         Err(error) => new_java_string(&mut env, format!("GigaAM error: {error}")),
     }
+}
+
+/// Length, in input samples, of the first piece of a still-running recording that can already be
+/// transcribed on its own; 0 while none is settled or on error. Needs no model and no engine lock.
+#[no_mangle]
+pub extern "system" fn Java_com_servideus_gigaamime_nativebridge_GigaamNativeBridge_nativeFindSettledPiece(
+    mut env: JNIEnv,
+    _class: JClass,
+    pcm16: JShortArray,
+    sample_rate: jint,
+) -> jint {
+    let piece = read_pcm_from_jni(&mut env, &pcm16, sample_rate).ok().and_then(|(samples, rate)| {
+        let resampled = resample_linear(samples, rate, TARGET_SAMPLE_RATE);
+        gigaam::settled_first_piece(&resampled).map(|end| end * rate / TARGET_SAMPLE_RATE)
+    });
+    piece.and_then(|end| jint::try_from(end).ok()).unwrap_or(0)
 }
 
 #[no_mangle]
@@ -148,17 +164,8 @@ fn transcribe_from_jni_inputs(
 ) -> Result<String, String> {
     let model_dir = model_directory_from_jni_inputs(env, models_root_dir, model_id)?;
 
-    let pcm_len = env
-        .get_array_length(&pcm16)
-        .map_err(|e| format!("Failed to get PCM array length: {e}"))?;
-    let mut pcm = vec![0_i16; pcm_len as usize];
-    env.get_short_array_region(&pcm16, 0, &mut pcm)
-        .map_err(|e| format!("Failed to read PCM samples: {e}"))?;
-
-    let source_rate = usize::try_from(sample_rate).map_err(|_| "Invalid sample rate".to_string())?;
-
     let pcm_to_f32_start = Instant::now();
-    let samples: Vec<f32> = pcm.iter().map(|&sample| sample as f32 / i16::MAX as f32).collect();
+    let (samples, source_rate) = read_pcm_from_jni(env, &pcm16, sample_rate)?;
     let pcm_to_f32_ms = pcm_to_f32_start.elapsed().as_millis();
 
     let resample_start = Instant::now();
@@ -213,6 +220,23 @@ fn model_directory_from_jni_inputs(
         return Err(format!("Unsupported model id: {model_id}"));
     }
     Ok(Path::new(&models_root).join(model_id))
+}
+
+/// Copies Java 16-bit PCM into f32 samples in [-1, 1] and returns them with the sample rate.
+fn read_pcm_from_jni(
+    env: &mut JNIEnv,
+    pcm16: &JShortArray,
+    sample_rate: jint,
+) -> Result<(Vec<f32>, usize), String> {
+    let pcm_len = env
+        .get_array_length(pcm16)
+        .map_err(|e| format!("Failed to get PCM array length: {e}"))?;
+    let mut pcm = vec![0_i16; pcm_len as usize];
+    env.get_short_array_region(pcm16, 0, &mut pcm)
+        .map_err(|e| format!("Failed to read PCM samples: {e}"))?;
+    let source_rate = usize::try_from(sample_rate).map_err(|_| "Invalid sample rate".to_string())?;
+    let samples = pcm.iter().map(|&sample| sample as f32 / i16::MAX as f32).collect();
+    Ok((samples, source_rate))
 }
 
 fn jstring_to_rust(env: &mut JNIEnv, value: JString) -> Result<String, String> {

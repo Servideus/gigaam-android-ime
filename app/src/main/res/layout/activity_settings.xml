@@ -16,38 +16,12 @@
             android:text="@string/title_models"
             android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6" />
 
-        <RadioGroup
-            android:id="@+id/radioModelGroup"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp">
-
-            <RadioButton
-                android:id="@+id/radioModelInt8"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/model_int8_label" />
-
-            <RadioButton
-                android:id="@+id/radioModelFull"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/model_full_label" />
-        </RadioGroup>
-
         <TextView
             android:id="@+id/txtSelectedStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="12dp"
             android:text="@string/selected_model_status_placeholder" />
-
-        <TextView
-            android:id="@+id/txtActiveModel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/active_model_placeholder" />
 
         <TextView
             android:id="@+id/txtNativeStatus"
@@ -172,13 +146,6 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="@string/delete_selected_model" />
-
-        <Button
-            android:id="@+id/btnSetActive"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/set_as_active_model" />
 
         <Button
             android:id="@+id/btnOpenImeSettings"

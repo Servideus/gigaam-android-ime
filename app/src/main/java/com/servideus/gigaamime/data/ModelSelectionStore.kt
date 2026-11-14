@@ -5,11 +5,6 @@ import android.content.Context
 class ModelSelectionStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun getActiveModel(): GigaamModel =
-        GigaamModel.fromId(preferences.getString(KEY_ACTIVE_MODEL, GigaamModel.INT8.id))
-
-    fun setActiveModel(model: GigaamModel) = putString(KEY_ACTIVE_MODEL, model.id)
-
     fun getAppendTrailingSpace(): Boolean = preferences.getBoolean(KEY_APPEND_TRAILING_SPACE, true)
 
     fun setAppendTrailingSpace(enabled: Boolean) = putBoolean(KEY_APPEND_TRAILING_SPACE, enabled)
@@ -32,7 +27,6 @@ class ModelSelectionStore(context: Context) {
 
     private companion object {
         const val PREFS_NAME = "gigaam_ime_settings"
-        const val KEY_ACTIVE_MODEL = "active_model"
         const val KEY_APPEND_TRAILING_SPACE = "append_trailing_space"
         const val KEY_SPEED_PROFILE = "speed_profile"
         const val KEY_ACCELERATOR_MODE = "accelerator_mode"

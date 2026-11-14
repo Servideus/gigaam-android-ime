@@ -7,7 +7,10 @@ import android.media.MediaRecorder
 import java.util.Collections
 import kotlin.math.max
 
-/** Records 16-bit mono PCM until [stop]; falls back to 48/44.1 kHz where 16 kHz is unsupported. */
+/**
+ * Records 16-bit mono PCM until [stop]; falls back to 48/44.1 kHz where 16 kHz is unsupported.
+ * One instance serves one recording, and the samples stay readable after [stop].
+ */
 class AudioCapture {
     private val chunks = Collections.synchronizedList(mutableListOf<ShortArray>())
     @Volatile
@@ -58,17 +61,21 @@ class AudioCapture {
             record.release()
         }
         audioRecord = null
+        return copySamples()
+    }
 
-        val localChunks = chunks.toList()
-        chunks.clear()
-        val totalSamples = localChunks.sumOf { it.size }
-        val merged = ShortArray(totalSamples)
+    /** Samples recorded so far, from [fromSample] on. Safe to call while recording and after [stop]. */
+    fun copySamples(fromSample: Int = 0): ShortArray = synchronized(chunks) {
+        val result = ShortArray((chunks.sumOf { it.size } - fromSample).coerceAtLeast(0))
+        var chunkStart = 0
         var offset = 0
-        for (chunk in localChunks) {
-            chunk.copyInto(merged, destinationOffset = offset)
-            offset += chunk.size
+        for (chunk in chunks) {
+            val skip = (fromSample - chunkStart).coerceIn(0, chunk.size)
+            chunk.copyInto(result, destinationOffset = offset, startIndex = skip)
+            offset += chunk.size - skip
+            chunkStart += chunk.size
         }
-        return merged
+        result
     }
 
     @SuppressLint("MissingPermission")

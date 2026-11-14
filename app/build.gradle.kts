@@ -19,6 +19,8 @@ android {
         targetSdk = 35
         versionCode = 3
         versionName = "0.1.2"
+        // The Rust core is built for rustAbi only; ONNX Runtime libraries for other ABIs are dead weight.
+        ndk { abiFilters += rustAbi.get() }
     }
 
     buildTypes {

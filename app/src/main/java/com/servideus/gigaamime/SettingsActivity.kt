@@ -30,15 +30,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class SettingsActivity : AppCompatActivity() {
-    private lateinit var radioModelGroup: RadioGroup
-    private lateinit var radioModelInt8: RadioButton
-    private lateinit var radioModelFull: RadioButton
     private lateinit var radioSpeedProfileGroup: RadioGroup
     private lateinit var radioSpeedBalanced: RadioButton
     private lateinit var radioSpeedFast: RadioButton
     private lateinit var radioSpeedQuality: RadioButton
     private lateinit var txtSelectedStatus: TextView
-    private lateinit var txtActiveModel: TextView
     private lateinit var txtNativeStatus: TextView
     private lateinit var txtDownloadProgress: TextView
     private lateinit var txtHardwareAccelerationHint: TextView
@@ -49,13 +45,12 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var btnGrantMic: Button
     private lateinit var btnDownload: Button
     private lateinit var btnDelete: Button
-    private lateinit var btnSetActive: Button
     private lateinit var btnOpenImeSettings: Button
     private lateinit var btnOpenInputPicker: Button
 
     private lateinit var modelRepository: ModelRepository
     private lateinit var selectionStore: ModelSelectionStore
-    private var selectedModel: GigaamModel = GigaamModel.INT8
+    private val model = GigaamModel.INT8
     private var busy = false
     private var downloadStatusText: String? = null
 
@@ -75,25 +70,21 @@ class SettingsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_settings)
         modelRepository = ModelRepository(applicationContext)
         selectionStore = ModelSelectionStore(applicationContext)
-        selectedModel = selectionStore.getActiveModel()
 
         bindViews()
         setDownloadStatus(getString(R.string.status_download_idle))
         wireActions()
         applyNativeRuntimeOptions()
         refreshUi()
+        lifecycleScope.launch { modelRepository.deleteRetiredModels() }
     }
 
     private fun bindViews() {
-        radioModelGroup = findViewById(R.id.radioModelGroup)
-        radioModelInt8 = findViewById(R.id.radioModelInt8)
-        radioModelFull = findViewById(R.id.radioModelFull)
         radioSpeedProfileGroup = findViewById(R.id.radioSpeedProfileGroup)
         radioSpeedBalanced = findViewById(R.id.radioSpeedBalanced)
         radioSpeedFast = findViewById(R.id.radioSpeedFast)
         radioSpeedQuality = findViewById(R.id.radioSpeedQuality)
         txtSelectedStatus = findViewById(R.id.txtSelectedStatus)
-        txtActiveModel = findViewById(R.id.txtActiveModel)
         txtNativeStatus = findViewById(R.id.txtNativeStatus)
         txtDownloadProgress = findViewById(R.id.txtDownloadProgress)
         txtHardwareAccelerationHint = findViewById(R.id.txtHardwareAccelerationHint)
@@ -104,27 +95,14 @@ class SettingsActivity : AppCompatActivity() {
         btnGrantMic = findViewById(R.id.btnGrantMic)
         btnDownload = findViewById(R.id.btnDownload)
         btnDelete = findViewById(R.id.btnDelete)
-        btnSetActive = findViewById(R.id.btnSetActive)
         btnOpenImeSettings = findViewById(R.id.btnOpenImeSettings)
         btnOpenInputPicker = findViewById(R.id.btnOpenInputPicker)
 
-        when (selectedModel) {
-            GigaamModel.INT8 -> radioModelInt8.isChecked = true
-            GigaamModel.FULL -> radioModelFull.isChecked = true
-        }
         switchAppendTrailingSpace.isChecked = selectionStore.getAppendTrailingSpace()
         syncPerformanceControls()
     }
 
     private fun wireActions() {
-        radioModelGroup.setOnCheckedChangeListener { _, checkedId ->
-            selectedModel = when (checkedId) {
-                R.id.radioModelFull -> GigaamModel.FULL
-                else -> GigaamModel.INT8
-            }
-            refreshUi()
-        }
-
         radioSpeedProfileGroup.setOnCheckedChangeListener { _, checkedId ->
             val profile = when (checkedId) {
                 R.id.radioSpeedFast -> SpeedProfile.FAST
@@ -145,7 +123,7 @@ class SettingsActivity : AppCompatActivity() {
         switchWarmup.setOnCheckedChangeListener { _, checked ->
             selectionStore.setWarmupEnabled(checked)
             lifecycleScope.launch {
-                if (checked) maybeWarmupModel(selectionStore.getActiveModel()) else unloadNativeModel()
+                if (checked) maybeWarmupModel() else unloadNativeModel()
             }
             refreshUi()
         }
@@ -155,34 +133,22 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         btnDownload.setOnClickListener {
-            downloadSelectedModel()
+            downloadModel()
         }
 
         btnDelete.setOnClickListener {
             lifecycleScope.launch {
                 setBusy(true)
                 runCatching {
-                    modelRepository.deleteModel(selectedModel)
-                    if (selectedModel == selectionStore.getActiveModel()) {
-                        unloadNativeModel()
-                    }
-                    setDownloadStatus(getString(R.string.status_delete_success, selectedModel.displayName))
+                    modelRepository.deleteModel(model)
+                    unloadNativeModel()
+                    setDownloadStatus(getString(R.string.status_delete_success, model.displayName))
                 }.onFailure { error ->
                     setDownloadStatus(getString(R.string.status_error, error.message ?: "delete failed"))
                 }
                 setBusy(false)
                 refreshUi()
             }
-        }
-
-        btnSetActive.setOnClickListener {
-            selectionStore.setActiveModel(selectedModel)
-            applyNativeRuntimeOptions()
-            lifecycleScope.launch {
-                maybeWarmupModel(selectedModel)
-            }
-            setDownloadStatus(getString(R.string.status_set_active_success, selectedModel.displayName))
-            refreshUi()
         }
 
         btnOpenImeSettings.setOnClickListener {
@@ -199,19 +165,17 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun downloadSelectedModel() {
+    private fun downloadModel() {
         lifecycleScope.launch {
             setBusy(true)
             runCatching {
-                modelRepository.downloadModel(selectedModel) { downloaded, total ->
+                modelRepository.downloadModel(model) { downloaded, total ->
                     runOnUiThread {
                         updateProgress(downloaded, total)
                     }
                 }
-                setDownloadStatus(getString(R.string.status_download_success, selectedModel.displayName))
-                if (selectionStore.getActiveModel() == selectedModel) {
-                    maybeWarmupModel(selectedModel)
-                }
+                setDownloadStatus(getString(R.string.status_download_success, model.displayName))
+                maybeWarmupModel()
             }.onFailure { error ->
                 val details = error.message ?: "download failed"
                 setDownloadStatus(getString(R.string.status_error, details))
@@ -221,7 +185,7 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun maybeWarmupModel(model: GigaamModel) {
+    private suspend fun maybeWarmupModel() {
         val runtimeSettings = selectionStore.getRuntimeSettings()
         if (!runtimeSettings.warmupEnabled || !GigaamNativeBridge.isAvailable()) {
             return
@@ -276,21 +240,15 @@ class SettingsActivity : AppCompatActivity() {
     private fun refreshUi() {
         lifecycleScope.launch {
             val selectedInstalled = withContext(Dispatchers.IO) {
-                modelRepository.isModelDownloaded(selectedModel)
+                modelRepository.isModelDownloaded(model)
             }
-            val activeModel = selectionStore.getActiveModel()
             val runtimeSettings = selectionStore.getRuntimeSettings()
             val selectedStatus = if (selectedInstalled) {
                 getString(R.string.status_model_ready)
             } else {
                 getString(R.string.status_model_not_ready)
             }
-            txtSelectedStatus.text = getString(
-                R.string.status_selected_model,
-                "${selectedModel.displayName}, ${selectedModel.qualityHint}",
-                selectedStatus,
-            )
-            txtActiveModel.text = getString(R.string.status_active_model, activeModel.displayName)
+            txtSelectedStatus.text = getString(R.string.status_selected_model, model.displayName, selectedStatus)
 
             txtNativeStatus.text = if (GigaamNativeBridge.isAvailable()) {
                 getString(R.string.status_native_ready)
@@ -343,11 +301,8 @@ class SettingsActivity : AppCompatActivity() {
         val idle = !busy
         btnGrantMic.isEnabled = canGrantMic && idle
         btnDelete.isEnabled = selectedInstalled && idle
-        btnSetActive.isEnabled = selectedInstalled && idle
         for (control in listOf<View>(
             btnDownload,
-            radioModelInt8,
-            radioModelFull,
             radioSpeedBalanced,
             radioSpeedFast,
             radioSpeedQuality,

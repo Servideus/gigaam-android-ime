@@ -12,61 +12,47 @@ private const val MODEL_BASE_URL = "https://huggingface.co/istupakov/gigaam-v3-o
 private fun hubArtifact(fileName: String, sha256: String, sizeBytes: Long) =
     ModelArtifact(fileName, MODEL_BASE_URL + fileName, sha256, sizeBytes)
 
-private val VOCAB_ARTIFACT = hubArtifact(
-    fileName = "v3_e2e_ctc_vocab.txt",
-    sha256 = "142de7570b3de5b3035ce111a89c228e80e6085273731d944093ddf24fa539cd",
-    sizeBytes = 2_007,
-)
-
-private val CONFIG_ARTIFACT = hubArtifact(
-    fileName = "v3_e2e_ctc.yaml",
-    sha256 = "e67eca3a311ad7c8813d36dff6b8eeba7ad3459fd811d6faea2a26535754a358",
-    sizeBytes = 899,
-)
-
 /**
- * Downloadable models. The [id] is also the model's folder name under the models root;
+ * The downloadable model. The [id] is also the model's folder name under the models root;
  * the native core resolves the same path from the id.
  */
 enum class GigaamModel(
     val id: String,
     val displayName: String,
-    val qualityHint: String,
     val artifacts: List<ModelArtifact>,
 ) {
     INT8(
-        id = "gigaam-v3-e2e-ctc-int8",
-        displayName = "GigaAM v3 e2e-CTC (int8)",
-        qualityHint = "faster, smaller",
+        id = "gigaam-v3-e2e-rnnt-int8",
+        displayName = "GigaAM v3 e2e-RNNT (int8)",
         artifacts = listOf(
             hubArtifact(
-                fileName = "v3_e2e_ctc.int8.onnx",
-                sha256 = "2e3fcb7a7b66030336fd10c2fcfb033bd1dc7e1bf238fe5cfd83b1d0cfc9d28e",
-                sizeBytes = 224_893_347,
+                fileName = "v3_e2e_rnnt_encoder.int8.onnx",
+                sha256 = "4e0e076a6076cd110277e529b8ac8f32cd5297f7fbebad5341ae8ddb7d00817b",
+                sizeBytes = 224_570_477,
             ),
-            VOCAB_ARTIFACT,
-            CONFIG_ARTIFACT,
-        ),
-    ),
-    FULL(
-        id = "gigaam-v3-e2e-ctc",
-        displayName = "GigaAM v3 e2e-CTC (full)",
-        qualityHint = "higher quality",
-        artifacts = listOf(
             hubArtifact(
-                fileName = "v3_e2e_ctc.onnx",
-                sha256 = "377701bd33568f4733feec2db5b2dc12544fd09a5a5dfa69ccf55d161f84027a",
-                sizeBytes = 885_950_079,
+                fileName = "v3_e2e_rnnt_decoder.int8.onnx",
+                sha256 = "89014e134865615b91e037157e46e389b1271e6072460efc010ea08e61e23146",
+                sizeBytes = 1_159_170,
             ),
-            VOCAB_ARTIFACT,
-            CONFIG_ARTIFACT,
+            hubArtifact(
+                fileName = "v3_e2e_rnnt_joint.int8.onnx",
+                sha256 = "ade116563dbf66e503b0994efab6b5861412743e52bf31c39fc3fffa3783d5d1",
+                sizeBytes = 687_791,
+            ),
+            hubArtifact(
+                fileName = "v3_e2e_rnnt_vocab.txt",
+                sha256 = "39abae20e692998290c574e606f11a9edef2902a1995463fcff63d1490cf22b7",
+                sizeBytes = 13_354,
+            ),
+            hubArtifact(
+                fileName = "v3_e2e_rnnt.yaml",
+                sha256 = "d23270a1f327e365ebc4554b7ceee69ac12898e21092c18085151516aa58f91b",
+                sizeBytes = 1_041,
+            ),
         ),
     );
 
     val totalBytes: Long
         get() = artifacts.sumOf { it.sizeBytes }
-
-    companion object {
-        fun fromId(id: String?): GigaamModel = entries.firstOrNull { it.id == id } ?: INT8
-    }
 }

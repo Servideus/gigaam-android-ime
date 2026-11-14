@@ -16,7 +16,8 @@ enum class AcceleratorMode(val id: String) {
     CPU("cpu");
 
     companion object {
-        fun fromId(value: String?): AcceleratorMode = entries.firstOrNull { it.id == value } ?: AUTO
+        /** CPU by default: on a Helio G99 phone AUTO (XNNPACK + NNAPI) was about twice as slow. */
+        fun fromId(value: String?): AcceleratorMode = entries.firstOrNull { it.id == value } ?: CPU
     }
 }
 
