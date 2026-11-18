@@ -1,5 +1,103 @@
-[Инструкция на русском языке здесь](README.ru.md).
+[Русская версия](README.md)
 
 # GigaAM Android IME
 
-The complete English documentation is now in [README.md](README.md). This page preserves the previous documentation link.
+An Android keyboard that turns Russian speech into text without the internet. Recognition runs on the phone, using the GigaAM v3 e2e-RNNT model.
+
+**[Download the latest version](https://github.com/Servideus/gigaam-android-ime/releases/latest)** — you need the `.apk` file under "Assets".
+
+## Requirements
+
+- A phone with an arm64 processor. Nearly all phones released after 2017 have one.
+- Android 8.0 or newer. Tested only on Android 14 (Infinix X6833B).
+- Free storage: about 500 MB while the model downloads; afterwards the model takes 226 MB.
+- Internet only once, to download the model. Wi‑Fi is better.
+
+## Install
+
+1. Download the `.apk` from the [release page](https://github.com/Servideus/gigaam-android-ime/releases/latest) and open the file on the phone.
+2. Android asks whether apps may be installed from this source (your browser or file manager). Allow it. Google Play Protect may warn about an unknown app; this is normal for apps outside the Play Store.
+3. Open the «GigaAM Диктовка IME» app (GigaAM Dictation IME) and complete four steps:
+   1. Allow microphone access.
+   2. Download the model.
+   3. Enable «Клавиатура GigaAM» (GigaAM Keyboard) in Android settings.
+   4. Select «Клавиатура GigaAM» as the current keyboard.
+4. When you enable the keyboard, Android warns that it may collect all text you type. Android shows this for every third-party keyboard. What GigaAM does is described under "Privacy".
+
+## Use
+
+1. Open any text field. «Клавиатура GigaAM» appears.
+2. Tap the microphone button and speak.
+3. Tap the button again. The text appears in the field about 1.5 s later for a short phrase and about 2.5 s later for a one-minute recording.
+
+Long recordings are cut at pauses and transcribed while you speak, so no text is lost and the wait does not grow. Besides dictation there is a regular keyboard: RU/EN layouts, digits and symbols.
+
+## Privacy
+
+- Voice and text are processed only on the phone. The app sends them nowhere.
+- The internet is used only to download the model from huggingface.co. Each model file is checked against its SHA-256 hash.
+- The app requests microphone and internet access. It requests no other permissions.
+
+## Troubleshooting
+
+- **«Модель не скачана: откройте настройки»** (model not downloaded) — open the app and download the model (step 2).
+- **«Нет доступа к микрофону»** (no microphone access) — open the app and allow the microphone. If Android no longer shows the prompt, allow it in the app's Android settings.
+- **The keyboard is not in the list** — enable it in Android settings first (step 3), then select it (step 4).
+- **The model download stopped** — check the internet connection and free storage. If the download does not continue by itself, tap «Скачать модель» (Download model) again.
+- **The update does not install** — see "Updating".
+
+## Updating
+
+Release APKs are signed with a debug key: this is a beta. A new version installs over an old one only when both are signed with the same key. If Android refuses the update, uninstall the old version and install the new one. Uninstalling deletes the settings and the model, so the model must be downloaded again.
+
+## Status
+
+The latest release is beta 0.2.0. Checked on an Infinix X6833B (Helio G99, Android 14): builds and lint pass, Rust tests pass on the phone, live dictation works. Measurements and limits are in the [verification report](docs/verification.md). Android 8 and other phones were not checked.
+
+Not released yet (in the code): a setup screen with four checked steps, and a background model download. That download continues after the app is closed and resumes after a network drop. In 0.2.0 the download stops when you leave the screen and starts over.
+
+## For developers
+
+Kotlin handles the keyboard and settings. The Rust core (`native/gigaam_core/`) runs ONNX Runtime on the CPU with 6 threads and is called through JNI. The `gigaam-v3-e2e-rnnt-int8` model is not bundled in the APK. Its URLs, hashes and sizes are defined in [ModelSpec.kt](app/src/main/java/com/servideus/gigaamime/data/ModelSpec.kt).
+
+### Build requirements
+
+- Android Studio / Android SDK, SDK Platform 35, NDK 27.2.12479018
+- JDK 17
+- Rust (stable), `cargo-ndk` and the `aarch64-linux-android` target
+
+```powershell
+cargo install cargo-ndk
+rustup target add aarch64-linux-android
+```
+
+The SDK path comes from `local.properties` (`sdk.dir`). If `ANDROID_NDK_HOME` is not set, NDK `27.2.12479018` from that SDK is used.
+
+### Build
+
+```powershell
+.\gradlew.bat assembleDebug
+```
+
+Gradle builds the Rust core during `preBuild`. The APK appears at `app/build/outputs/apk/debug/app-debug.apk`. The Gradle release APK is unsigned.
+
+Full check (debug, release and lint):
+
+```powershell
+./scripts/verify-build.ps1
+```
+
+The script sets a separate temporary Java socket directory. This avoids the `Unable to establish loopback connection` error caused by an 8.3 Windows `TEMP` path.
+
+You can build Rust once and then skip it:
+
+```powershell
+.\gradlew.bat :app:buildRustCore -PrustProfile=release
+.\gradlew.bat assembleDebug -PskipRustBuild=true
+```
+
+Options: `-PskipRustBuild=true` skips Rust, `-PrustAbi=arm64-v8a` selects the ABI, `-PrustProfile=release|debug` selects the Rust profile. Configuration is in [app/build.gradle.kts](app/build.gradle.kts).
+
+## License
+
+Application code: [MIT](LICENSE). GigaAM authorship, model terms and dependency licenses are described in [THIRD_PARTY.md](THIRD_PARTY.md).
