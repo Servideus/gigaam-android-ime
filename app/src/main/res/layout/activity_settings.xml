@@ -11,39 +11,128 @@
         android:padding="16dp">
 
         <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/title_models"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6" />
-
-        <TextView
-            android:id="@+id/txtSelectedStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/selected_model_status_placeholder" />
-
-        <TextView
             android:id="@+id/txtNativeStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:textColor="?attr/colorError"
+            android:visibility="gone" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/title_setup"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="@string/native_status_placeholder" />
+            android:text="@string/setup_privacy_note" />
+
+        <!-- Step 1: microphone -->
+        <TextView
+            android:id="@+id/txtStepMic"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1" />
+
+        <Button
+            android:id="@+id/btnGrantMic"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/grant_mic_permission" />
+
+        <!-- Step 2: model -->
+        <TextView
+            android:id="@+id/txtStepModel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1" />
 
         <ProgressBar
             android:id="@+id/progressDownload"
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:max="1000" />
+            android:layout_marginTop="4dp"
+            android:max="1000"
+            android:visibility="gone" />
 
         <TextView
             android:id="@+id/txtDownloadProgress"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/download_progress_placeholder" />
+            android:layout_marginTop="4dp" />
+
+        <Button
+            android:id="@+id/btnDownload"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/download_selected_model" />
+
+        <!-- Step 3: enable keyboard -->
+        <TextView
+            android:id="@+id/txtStepEnable"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1" />
+
+        <Button
+            android:id="@+id/btnOpenImeSettings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/open_ime_settings" />
+
+        <!-- Step 4: select keyboard -->
+        <TextView
+            android:id="@+id/txtStepSelect"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1" />
+
+        <Button
+            android:id="@+id/btnOpenInputPicker"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/open_input_picker" />
+
+        <!-- All done: try dictation here -->
+        <LinearLayout
+            android:id="@+id/groupReady"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/setup_done"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1" />
+
+            <EditText
+                android:id="@+id/editTry"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="@string/setup_try_hint"
+                android:importantForAutofill="no"
+                android:inputType="textMultiLine|textCapSentences"
+                android:minLines="2" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:text="@string/title_settings"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6" />
 
         <com.google.android.material.switchmaterial.SwitchMaterial
             android:id="@+id/switchAppendTrailingSpace"
@@ -53,18 +142,10 @@
             android:text="@string/append_trailing_space_label" />
 
         <TextView
-            android:id="@+id/txtAppendTrailingSpaceHint"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:text="@string/append_trailing_space_hint" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="@string/title_performance"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6" />
 
         <com.google.android.material.switchmaterial.SwitchMaterial
             android:id="@+id/switchWarmup"
@@ -74,45 +155,17 @@
             android:text="@string/keep_model_warm_label" />
 
         <TextView
-            android:id="@+id/txtWarmupHint"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:text="@string/keep_model_warm_hint" />
 
         <Button
-            android:id="@+id/btnGrantMic"
+            android:id="@+id/btnDelete"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="@string/grant_mic_permission" />
-
-        <Button
-            android:id="@+id/btnDownload"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/download_selected_model" />
-
-        <Button
-            android:id="@+id/btnDelete"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
             android:text="@string/delete_selected_model" />
-
-        <Button
-            android:id="@+id/btnOpenImeSettings"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/open_ime_settings" />
-
-        <Button
-            android:id="@+id/btnOpenInputPicker"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/open_input_picker" />
     </LinearLayout>
 </ScrollView>
