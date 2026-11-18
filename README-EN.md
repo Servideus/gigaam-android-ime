@@ -50,8 +50,7 @@ Long recordings are cut at pauses and transcribed while you speak, so no text is
 
 Since 0.3.0 the APK is signed with the project's permanent key. Later versions will install over it.
 
-- **0.1.0 and 0.1.1** were signed with the same key: 0.3.0 installs over them.
-- **0.1.2 and 0.2.0** were signed with a debug key. Android will not install 0.3.0 over them: uninstall the old version first. Uninstalling deletes the settings and the model, so the model must be downloaded again.
+Versions before 0.3.0 were signed with other keys, so Android will not install 0.3.0 over them. Uninstall the old version first, then install the new one. Uninstalling deletes the settings and the model, so the model must be downloaded again.
 
 ## Status
 

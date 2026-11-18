@@ -134,3 +134,16 @@ Keyboard dictation, TTS from PC speakers, timing from the app log (stop tap to t
 Version 0.2.0, versionCode 4. `scripts/verify-build.ps1` passed: lint 0 errors, 55 warnings. The debug APK is signed with the Android debug key (certificate SHA-256 `6432c067…be42aa`) and installed over the previous debug build on the Infinix X6833B.
 
 In-app model download, checked for the first time: "Удалить модель", then "Скачать модель" in settings. All five RNNT files downloaded from Hugging Face over the phone's network; their SHA-256 on the device matched `ModelSpec.kt`; the app then warmed the model and showed it as ready. A 61 s keyboard dictation afterwards came out complete, 2.67 s after stop.
+
+# Verification: 2026-11-18 (release 0.3.0)
+
+Version 0.3.0, versionCode 5. `scripts/verify-build.ps1` passed: lint 0 errors, 55 warnings. The release APK was built from a clean tree, signed outside Gradle with `apksigner` and a new project key (certificate SHA-256 `2b2f7ac8014cd662d78eafd1638f18edba96f3c7525b7c805908a637851835ad`, schemes v2 and v3), and checked with `apksigner verify` and `zipalign -c`. It is not debuggable. The password of the 0.1.0/0.1.1 key was lost, so no earlier version updates in place.
+
+Smartphone: Infinix X6833B, Android 14, Wi‑Fi.
+
+- Setup checklist (debug build): each of the four steps showed a number and a button when undone and a check mark when done. The state refreshed after returning from Android settings and right after the keyboard picker closed. The picker button stayed disabled until the keyboard was enabled. After a permanent microphone denial the button opened the app settings; after a single denial on a clean install it kept asking.
+- Model download (debug build) through the system DownloadManager: a full download installed with matching SHA-256 for all five files and an empty staging folder. With Wi‑Fi and mobile data off the screen showed the waiting text; after Wi‑Fi returned the download continued from 15 % instead of 0 %, and the file fetched in two parts passed SHA-256. The download finished while the app process was killed; opening the app verified and installed it. A changed staged file was rejected by size and, with the size kept, by SHA-256; the retry queued only that file. Cancel removed the queued downloads and staged files.
+- Keyboard hint (debug build): without microphone permission or without the model the status line showed «Нет микрофона. Настроить ›» or «Нет модели. Настроить ›» as soon as the keyboard opened; tapping it opened the setup screen. With everything ready the line showed «Ожидание» and the tap did nothing.
+- Signed release: the debug build was uninstalled, the signed APK installed, and all four steps were completed through the UI on a clean install, including the model download, warmup and the Android keyboard warning.
+
+Not tested: a server-side download failure, the low-space message, the «Загрузка отменена» text, swiping the app from recents (the process was killed instead), the core-error hint, the system download notification (not seen in the shade on this firmware), Android 8 and other phones.
