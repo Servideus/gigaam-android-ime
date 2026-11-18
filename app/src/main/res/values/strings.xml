@@ -46,9 +46,9 @@
     <string name="ime_status_idle">Ожидание</string>
     <string name="ime_status_recording">Запись...</string>
     <string name="ime_status_transcribing">Распознавание...</string>
-    <string name="ime_status_no_permission">Нет доступа к микрофону</string>
-    <string name="ime_status_model_missing">Модель не скачана: откройте настройки</string>
-    <string name="ime_status_native_unavailable">Нативная библиотека недоступна</string>
+    <string name="ime_status_no_permission">Нет микрофона. Настроить ›</string>
+    <string name="ime_status_model_missing">Нет модели. Настроить ›</string>
+    <string name="ime_status_native_unavailable">Ошибка ядра. Подробнее ›</string>
     <string name="ime_status_empty_audio">Аудио не записано</string>
     <string name="ime_status_ready">Готово</string>
 

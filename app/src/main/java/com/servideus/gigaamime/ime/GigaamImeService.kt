@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.inputmethodservice.InputMethodService
+import android.graphics.Paint
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
@@ -67,6 +68,7 @@ class GigaamImeService : InputMethodService() {
     private var recording = false
     private var transcribing = false
     private var recordingStartedAtNs = 0L
+    private var needsSetup = false
 
     override fun onCreate() {
         super.onCreate()
@@ -97,7 +99,7 @@ class GigaamImeService : InputMethodService() {
         shiftEnabled = false
         symbolMode = false
         applyKeyboardLayout()
-        setStatus(getString(R.string.ime_status_idle))
+        showSetupHint()
         updateButtons()
         return view
     }
@@ -107,6 +109,7 @@ class GigaamImeService : InputMethodService() {
         shiftEnabled = false
         symbolMode = false
         applyKeyboardLayout()
+        showSetupHint()
         serviceScope.launch { warmupIfEnabled() }
     }
 
@@ -142,6 +145,7 @@ class GigaamImeService : InputMethodService() {
 
         btnMicAction?.setOnClickListener { onMicActionClicked() }
         btnSettings?.setOnClickListener { openSettings() }
+        txtImeStatus?.setOnClickListener { if (needsSetup) openSettings() }
         btnNextIme?.setOnClickListener { openNextKeyboard() }
 
         btnShift?.setOnClickListener {
@@ -292,15 +296,32 @@ class GigaamImeService : InputMethodService() {
         }
     }
 
-    private fun startRecording() {
-        val statusRes = when {
-            !hasMicrophonePermission() -> R.string.ime_status_no_permission
-            !GigaamNativeBridge.isAvailable() -> R.string.ime_status_native_unavailable
-            !modelRepository.isModelDownloaded(GigaamModel.INT8) -> R.string.ime_status_model_missing
-            else -> null
+    /** What blocks dictation, as a status text that ends with a hint to open setup; null when ready. */
+    private fun setupProblem(): Int? = when {
+        !hasMicrophonePermission() -> R.string.ime_status_no_permission
+        !GigaamNativeBridge.isAvailable() -> R.string.ime_status_native_unavailable
+        !modelRepository.isModelDownloaded(GigaamModel.INT8) -> R.string.ime_status_model_missing
+        else -> null
+    }
+
+    /** Shows the setup hint as soon as the keyboard opens; the status line then opens the setup screen. */
+    private fun showSetupHint() {
+        if (recording || transcribing) return
+        val problem = setupProblem()
+        needsSetup = problem != null
+        txtImeStatus?.let { status ->
+            status.paintFlags = if (needsSetup) {
+                status.paintFlags or Paint.UNDERLINE_TEXT_FLAG
+            } else {
+                status.paintFlags and Paint.UNDERLINE_TEXT_FLAG.inv()
+            }
         }
-        if (statusRes != null) {
-            setStatus(getString(statusRes))
+        setStatus(getString(problem ?: R.string.ime_status_idle))
+    }
+
+    private fun startRecording() {
+        if (setupProblem() != null) {
+            showSetupHint()
             return
         }
 

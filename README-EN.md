@@ -40,8 +40,8 @@ Long recordings are cut at pauses and transcribed while you speak, so no text is
 
 ## Troubleshooting
 
-- **«Модель не скачана: откройте настройки»** (model not downloaded) — open the app and download the model (step 2).
-- **«Нет доступа к микрофону»** (no microphone access) — open the app and allow the microphone. If Android no longer shows the prompt, allow it in the app's Android settings.
+- **«Нет модели. Настроить ›»** (no model, set up) — tap this text in the keyboard and download the model (step 2).
+- **«Нет микрофона. Настроить ›»** (no microphone, set up) — tap this text and allow the microphone. If Android no longer shows the prompt, allow it in the app's Android settings.
 - **The keyboard is not in the list** — enable it in Android settings first (step 3), then select it (step 4).
 - **The model download stopped** — check the internet connection and free storage. If the download does not continue by itself, tap «Скачать модель» (Download model) again.
 - **The update does not install** — see "Updating".
