@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Microphone with sound waves; everything stays inside the 66dp safe zone of the 108dp canvas. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Capsule -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,32 C58.4,32 62,35.6 62,40 L62,52 C62,56.4 58.4,60 54,60 C49.6,60 46,56.4 46,52 L46,40 C46,35.6 49.6,32 54,32 Z" />
+    <!-- Holder, stem and base -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:pathData="M40,51 C40,59.3 46.3,66 54,66 C61.7,66 68,59.3 68,51 M54,66 L54,74 M47,74 L61,74" />
+    <!-- Sound waves -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M33,40 C30.5,44 30.5,52 33,56 M75,40 C77.5,44 77.5,52 75,56" />
+</vector>

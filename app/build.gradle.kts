@@ -17,8 +17,8 @@ android {
         applicationId = "com.servideus.gigaamime"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.2.0"
+        versionCode = 5
+        versionName = "0.3.0"
         // The Rust core is built for rustAbi only; ONNX Runtime libraries for other ABIs are dead weight.
         ndk { abiFilters += rustAbi.get() }
     }

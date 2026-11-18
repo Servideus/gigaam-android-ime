@@ -4,7 +4,7 @@
 
 An Android keyboard that turns Russian speech into text without the internet. Recognition runs on the phone, using the GigaAM v3 e2e-RNNT model.
 
-**[Download the latest version](https://github.com/Servideus/gigaam-android-ime/releases/latest)** — you need the `.apk` file under "Assets".
+**[Download gigaam-ime.apk](https://github.com/Servideus/gigaam-android-ime/releases/latest/download/gigaam-ime.apk)** — the latest version. Release notes are on the [releases page](https://github.com/Servideus/gigaam-android-ime/releases).
 
 ## Requirements
 
@@ -15,7 +15,7 @@ An Android keyboard that turns Russian speech into text without the internet. Re
 
 ## Install
 
-1. Download the `.apk` from the [release page](https://github.com/Servideus/gigaam-android-ime/releases/latest) and open the file on the phone.
+1. Download [gigaam-ime.apk](https://github.com/Servideus/gigaam-android-ime/releases/latest/download/gigaam-ime.apk) and open the file on the phone.
 2. Android asks whether apps may be installed from this source (your browser or file manager). Allow it. Google Play Protect may warn about an unknown app; this is normal for apps outside the Play Store.
 3. Open the «GigaAM Диктовка IME» app (GigaAM Dictation IME) and complete four steps:
    1. Allow microphone access.
@@ -48,13 +48,14 @@ Long recordings are cut at pauses and transcribed while you speak, so no text is
 
 ## Updating
 
-Release APKs are signed with a debug key: this is a beta. A new version installs over an old one only when both are signed with the same key. If Android refuses the update, uninstall the old version and install the new one. Uninstalling deletes the settings and the model, so the model must be downloaded again.
+Since 0.3.0 the APK is signed with the project's permanent key. Later versions will install over it.
+
+- **0.1.0 and 0.1.1** were signed with the same key: 0.3.0 installs over them.
+- **0.1.2 and 0.2.0** were signed with a debug key. Android will not install 0.3.0 over them: uninstall the old version first. Uninstalling deletes the settings and the model, so the model must be downloaded again.
 
 ## Status
 
-The latest release is beta 0.2.0. Checked on an Infinix X6833B (Helio G99, Android 14): builds and lint pass, Rust tests pass on the phone, live dictation works. Measurements and limits are in the [verification report](docs/verification.md). Android 8 and other phones were not checked.
-
-Not released yet (in the code): a setup screen with four checked steps, and a background model download. That download continues after the app is closed and resumes after a network drop. In 0.2.0 the download stops when you leave the screen and starts over.
+The latest release is beta 0.3.0. It adds a 4-step setup screen, a background model download that resumes, setup hints in the keyboard, an app icon and a permanent APK signature. Checked on an Infinix X6833B (Helio G99, Android 14): builds and lint pass, live dictation works. Measurements and limits are in the [verification report](docs/verification.md). Android 8 and other phones were not checked.
 
 ## For developers
 
@@ -79,7 +80,7 @@ The SDK path comes from `local.properties` (`sdk.dir`). If `ANDROID_NDK_HOME` is
 .\gradlew.bat assembleDebug
 ```
 
-Gradle builds the Rust core during `preBuild`. The APK appears at `app/build/outputs/apk/debug/app-debug.apk`. The Gradle release APK is unsigned.
+Gradle builds the Rust core during `preBuild`. The APK appears at `app/build/outputs/apk/debug/app-debug.apk`. The Gradle release APK is unsigned: the release is signed separately with `apksigner` and the project key.
 
 Full check (debug, release and lint):
 

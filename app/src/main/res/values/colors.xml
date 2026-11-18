@@ -3,6 +3,7 @@
     <color name="colorPrimary">#1D4ED8</color>
     <color name="colorPrimaryDark">#1E3A8A</color>
     <color name="colorAccent">#0F766E</color>
+    <color name="ic_launcher_background">#FF0F766E</color>
     <color name="imeSurface">#DCEFE3</color>
     <color name="imeToolbarText">#1F2937</color>
     <color name="imeKeyText">#111827</color>
