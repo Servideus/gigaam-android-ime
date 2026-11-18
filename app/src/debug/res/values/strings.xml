@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug names, so the debug build is easy to tell apart from the release next to it. -->
+<resources>
+    <string name="app_name">GigaAM Диктовка (debug)</string>
+    <string name="ime_name">Клавиатура GigaAM (debug)</string>
+</resources>

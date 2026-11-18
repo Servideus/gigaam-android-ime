@@ -24,6 +24,11 @@ android {
     }
 
     buildTypes {
+        // The debug build gets its own package, so it installs next to the signed release instead of replacing it.
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(

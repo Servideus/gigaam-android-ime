@@ -79,7 +79,7 @@ The SDK path comes from `local.properties` (`sdk.dir`). If `ANDROID_NDK_HOME` is
 .\gradlew.bat assembleDebug
 ```
 
-Gradle builds the Rust core during `preBuild`. The APK appears at `app/build/outputs/apk/debug/app-debug.apk`. The Gradle release APK is unsigned: the release is signed separately with `apksigner` and the project key.
+Gradle builds the Rust core during `preBuild`. The APK appears at `app/build/outputs/apk/debug/app-debug.apk`. The Gradle release APK is unsigned: the release is signed separately with `apksigner` and the project key. The debug build has its own package, `com.servideus.gigaamime.debug`, and a «(debug)» label, so it installs next to the release. It keeps its own model and settings.
 
 Full check (debug, release and lint):
 

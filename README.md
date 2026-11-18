@@ -79,7 +79,7 @@ rustup target add aarch64-linux-android
 .\gradlew.bat assembleDebug
 ```
 
-Gradle сам собирает Rust на этапе `preBuild`. APK появится в `app/build/outputs/apk/debug/app-debug.apk`. Release-APK из Gradle не подписан: релиз подписывается отдельно, через `apksigner` и ключ проекта.
+Gradle сам собирает Rust на этапе `preBuild`. APK появится в `app/build/outputs/apk/debug/app-debug.apk`. Release-APK из Gradle не подписан: релиз подписывается отдельно, через `apksigner` и ключ проекта. Debug-сборка имеет свой пакет `com.servideus.gigaamime.debug` и название с пометкой «(debug)», поэтому ставится рядом с релизом. Модель и настройки у неё свои.
 
 Полная проверка (debug, release и lint):
 
