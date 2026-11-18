@@ -18,13 +18,19 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.switchmaterial.SwitchMaterial
+import com.servideus.gigaamime.data.CorruptModelFileException
+import com.servideus.gigaamime.data.DownloadState
 import com.servideus.gigaamime.data.GigaamModel
 import com.servideus.gigaamime.data.ModelRepository
 import com.servideus.gigaamime.data.ModelSelectionStore
+import com.servideus.gigaamime.data.NotEnoughSpaceException
 import com.servideus.gigaamime.nativebridge.GigaamNativeBridge
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -50,7 +56,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var selectionStore: ModelSelectionStore
     private val model = GigaamModel.INT8
     private var busy = false
-    private var downloading = false
+    private var downloadActive = false
     private var modelInstalled = false
 
     /** Android stops showing the permission dialog after a second denial; then the button opens app settings. */
@@ -74,6 +80,15 @@ class SettingsActivity : AppCompatActivity() {
         bindViews()
         wireActions()
         lifecycleScope.launch { modelRepository.deleteRetiredModels() }
+        // DownloadManager sends no progress callbacks, so poll while the screen is visible and a download runs.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                while (true) {
+                    delay(POLL_INTERVAL_MS)
+                    if (downloadActive) refreshUi()
+                }
+            }
+        }
     }
 
     override fun onResume() {
@@ -132,12 +147,16 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         btnDelete.setOnClickListener {
+            val cancelling = downloadActive
             lifecycleScope.launch {
                 setBusy(true)
                 runCatching {
                     modelRepository.deleteModel(model)
                     unloadNativeModel()
-                    setDownloadStatus(getString(R.string.status_delete_success, model.displayName))
+                    setDownloadStatus(
+                        if (cancelling) getString(R.string.status_download_cancelled)
+                        else getString(R.string.status_delete_success, model.displayName),
+                    )
                 }.onFailure { error ->
                     setDownloadStatus(getString(R.string.status_error, error.message ?: "delete failed"))
                 }
@@ -161,22 +180,55 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun downloadModel() {
         lifecycleScope.launch {
-            downloading = true
             setBusy(true)
-            runCatching {
-                modelRepository.downloadModel(model) { downloaded, total ->
-                    runOnUiThread {
-                        updateProgress(downloaded, total)
-                    }
+            setDownloadStatus(null)
+            runCatching { modelRepository.startDownload(model) }.onFailure { error ->
+                val text = if (error is NotEnoughSpaceException) {
+                    getString(R.string.status_no_space, Formatter.formatShortFileSize(this@SettingsActivity, error.requiredBytes))
+                } else {
+                    getString(R.string.status_error, error.message ?: "download failed")
                 }
+                setDownloadStatus(text)
+            }
+            setBusy(false)
+        }
+    }
+
+    /** Copies the finished download into place; the files were checked against SHA-256 on the way. */
+    private fun finalizeDownload() {
+        lifecycleScope.launch {
+            setBusy(true)
+            setDownloadStatus(getString(R.string.status_verifying))
+            runCatching {
+                modelRepository.finalizeDownload(model)
                 setDownloadStatus(getString(R.string.status_download_success, model.displayName))
                 maybeWarmupModel()
             }.onFailure { error ->
-                val details = error.message ?: "download failed"
-                setDownloadStatus(getString(R.string.status_error, details))
+                Log.w(TAG, "Model verification failed", error)
+                setDownloadStatus(
+                    if (error is CorruptModelFileException) getString(R.string.status_file_corrupt)
+                    else getString(R.string.status_error, error.message ?: "verification failed"),
+                )
             }
-            downloading = false
             setBusy(false)
+        }
+    }
+
+    private fun showDownloadState(state: DownloadState) {
+        downloadActive = state is DownloadState.Running
+        when (state) {
+            is DownloadState.Running -> {
+                updateProgress(state.downloadedBytes, state.totalBytes)
+                if (state.waitingForNetwork) {
+                    setDownloadStatus(getString(R.string.status_download_waiting))
+                }
+            }
+            is DownloadState.Failed -> {
+                modelRepository.cancelDownload()
+                setDownloadStatus(getString(R.string.status_download_failed, state.reason))
+            }
+            DownloadState.Complete -> if (!busy) finalizeDownload()
+            DownloadState.None -> Unit
         }
     }
 
@@ -227,7 +279,11 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun refreshUi() {
         lifecycleScope.launch {
-            modelInstalled = withContext(Dispatchers.IO) { modelRepository.isModelDownloaded(model) }
+            val state = withContext(Dispatchers.IO) {
+                modelInstalled = modelRepository.isModelDownloaded(model)
+                modelRepository.downloadState(model)
+            }
+            showDownloadState(state)
             val micGranted = ContextCompat.checkSelfPermission(
                 this@SettingsActivity,
                 Manifest.permission.RECORD_AUDIO,
@@ -245,6 +301,7 @@ class SettingsActivity : AppCompatActivity() {
             btnGrantMic.setText(if (micDeniedForever) R.string.open_app_settings else R.string.grant_mic_permission)
             val size = Formatter.formatShortFileSize(this@SettingsActivity, model.totalBytes)
             showStep(txtStepModel, modelInstalled, btnDownload, getString(R.string.step_model, mark(2, modelInstalled), size))
+            if (downloadActive) btnDownload.visibility = View.GONE
             showStep(txtStepEnable, enabled, btnOpenImeSettings, getString(R.string.step_enable, mark(3, enabled)))
             showStep(txtStepSelect, selected, btnOpenInputPicker, getString(R.string.step_select, mark(4, selected)))
             // The picker lists only enabled keyboards.
@@ -274,11 +331,12 @@ class SettingsActivity : AppCompatActivity() {
     private fun applyEnabledState() {
         val idle = !busy
         btnDownload.isEnabled = idle
-        btnDelete.isEnabled = idle && modelInstalled
-        btnDelete.visibility = if (modelInstalled) View.VISIBLE else View.GONE
+        btnDelete.isEnabled = idle
+        btnDelete.visibility = if (modelInstalled || downloadActive) View.VISIBLE else View.GONE
+        btnDelete.setText(if (downloadActive) R.string.cancel_download else R.string.delete_selected_model)
         switchAppendTrailingSpace.isEnabled = idle
         switchWarmup.isEnabled = idle
-        progressDownload.visibility = if (downloading) View.VISIBLE else View.GONE
+        progressDownload.visibility = if (downloadActive) View.VISIBLE else View.GONE
     }
 
     private fun updateProgress(downloaded: Long, total: Long) {
@@ -303,5 +361,6 @@ class SettingsActivity : AppCompatActivity() {
     private companion object {
         const val TAG = "SettingsActivity"
         const val DEBUG_LOGS = true
+        const val POLL_INTERVAL_MS = 1000L
     }
 }

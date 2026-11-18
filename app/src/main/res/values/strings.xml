@@ -53,8 +53,16 @@
     <string name="ime_status_ready">Готово</string>
 
     <string name="status_native_error">Нативное ядро: %1$s</string>
-    <string name="status_download_percent">Прогресс загрузки: %1$d%% (%2$s / %3$s)</string>
+    <string name="status_download_percent">Загружено %1$d%% (%2$s из %3$s). Загрузка идёт в фоне, приложение можно закрыть.</string>
+    <string name="cancel_download">Отменить загрузку</string>
+    <string name="status_download_waiting">Ждём сеть. Загрузка продолжится сама.</string>
+    <string name="status_download_failed">Загрузка не удалась (код %1$d). Нажмите «Скачать модель», чтобы повторить.</string>
+    <string name="status_verifying">Проверяем файлы модели…</string>
+    <string name="status_no_space">Мало места. Для загрузки нужно около %1$s свободной памяти.</string>
     <string name="status_download_success">Модель скачана: %1$s</string>
+    <string name="download_notification_title">Модель для диктовки GigaAM</string>
+    <string name="status_file_corrupt">Файл модели повреждён. Нажмите «Скачать модель», чтобы скачать его заново.</string>
+    <string name="status_download_cancelled">Загрузка отменена</string>
     <string name="status_delete_success">Модель удалена: %1$s</string>
     <string name="status_warmup_success">Прогрев завершён: %1$s</string>
     <string name="status_warmup_failed">Ошибка прогрева: %1$s</string>
