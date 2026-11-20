@@ -1,0 +1,49 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust-tests:
+    name: Rust unit tests (host)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: native/gigaam_core
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/gigaam_core
+      # ONNX Runtime is loaded at run time (ort "load-dynamic"), so unit tests need no native library.
+      # The model integration test stays #[ignore]d: it needs model files.
+      - run: cargo test --locked
+
+  android:
+    name: Android build and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - run: rustup toolchain install stable --profile minimal --target aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/gigaam_core
+      # The Gradle task relies on cargo-ndk 4 behaviour (see app/build.gradle.kts).
+      - run: cargo ndk --version || cargo install cargo-ndk --version "^4" --locked
+      - run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.2.12479018" > /dev/null
+      # Same tasks as scripts/verify-build.ps1. An empty ANDROID_NDK_HOME makes the Rust build use
+      # the NDK from ndkVersion, as on a developer machine, instead of the runner's default NDK.
+      - run: ./gradlew --no-daemon assembleDebug assembleRelease lintDebug --console=plain
+        env:
+          ANDROID_NDK_HOME: ''

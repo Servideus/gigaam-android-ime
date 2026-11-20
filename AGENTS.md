@@ -9,6 +9,8 @@ README ("Для разработчиков"). This file adds what is easy to get
   (`data/ModelRepository.kt`), JNI bridge (`nativebridge/`).
 - `native/gigaam_core/` — Rust core: mel features and ONNX Runtime (`load-dynamic`) on CPU.
 - `scripts/verify-build.ps1` — debug build, release build and lint.
+- `.github/workflows/checks.yml` — CI on Linux: Rust unit tests on the host, plus the same build
+  and lint as `verify-build.ps1`.
 - `docs/verification.md` — dated log of what was checked on a device and what was not.
 
 ## Build and test on Windows
@@ -24,8 +26,8 @@ README ("Для разработчиков"). This file adds what is easy to get
 
 - cargo-ndk 4 ignores `--manifest-path`. Run it from `native/gigaam_core`.
 - Without MSVC `link.exe`, host `cargo test` does not link on Windows. Compile the tests for the
-  phone (`cargo ndk -t arm64-v8a test --release --no-run`) and run them there. When no phone is
-  connected, report Rust tests as compiled, not passed.
+  phone (`cargo ndk -t arm64-v8a test --release --no-run`) and run them there, or rely on the CI
+  run. When neither ran them, report Rust tests as compiled, not passed.
 
 ## Device checks over ADB
 
