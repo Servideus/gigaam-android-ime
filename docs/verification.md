@@ -165,3 +165,28 @@ CI: `.github/workflows/checks.yml` ran on GitHub for commit `47cf290`, on its br
 Two earlier attempts showed why the checks matter. The mic tap first missed (the keyboard window spans the whole screen, so its touchable region is used now). Then `uiautomator dump` did not show the page text in Chrome 158, so the result is read through the page title instead. A stale tab with old text could have passed the check, so each run opens a new page and requires an empty field before dictating.
 
 Not covered by the script: the in-app model download, live human speech.
+
+# Measurement: 2026-11-20 (recognition eval baseline)
+
+`eval/` holds six fixed clips: five synthetic TTS recordings from the VoicePaste benchmark of 2026-10-04 (voices Irina and Pavel, one with noise at SNR 20 dB) and `long.wav`, the five glued with 0.8 s pauses (byte-identical to the 100 s file of 2026-11-14). `scripts/phone-check.ps1 -Eval` transcribes each on the phone through the Rust integration test and appends the result to `eval/results.jsonl`.
+
+Baseline, Infinix X6833B, model files hash `740ea55c365a`, core of commit `ec241c6`:
+
+| Clip | Words | Errors | WER | First run | Warm |
+|---|---|---|---|---|---|
+| short | 15 | 1 | 6.7% | 1.78 s | 1.45 s |
+| instructions | 21 | 0 | 0.0% | 2.11 s | 1.96 s |
+| disfluency | 18 | 1 | 5.6% | 2.57 s | 1.87 s |
+| facts (noise) | 42 | 2 | 4.8% | 4.50 s | 4.45 s |
+| facts-clean | 42 | 2 | 4.8% | 4.64 s | 4.37 s |
+| five clips | 138 | 6 | 4.3% | | |
+| long (100 s) | 138 | 6 | 4.3% | 15.3 s | 14.8 s |
+
+The errors: «смыслы» for «смысл», one «отправь» of the repeated pair dropped, «₽» for «рублей» (twice), «документы» for «документ» (twice). On 2026-11-14 the same long file gave 5 errors of 138; that run used the Auto accelerator mode, which may explain the difference (not checked).
+
+Checks of the measurement itself:
+
+- The reference word counts (15, 21, 18, 42, 42, 138) match the 2026-11-14 normalization in Python; 138 matches the earlier report.
+- On the phone texts, the PowerShell word errors equal Python's Levenshtein and difflib counts for all six clips.
+- Red runs: a clip scored against another clip's reference gave 95–222% WER; with no model on the phone the eval step failed with exit code 1.
+- All three runs of every clip gave identical text; the script fails the step otherwise.

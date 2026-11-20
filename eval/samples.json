@@ -1,0 +1,60 @@
+{
+  "source": "Synthetic Windows TTS speech, voices Microsoft Irina Desktop and Microsoft Pavel, 16 kHz mono 16-bit, taken unchanged from the VoicePaste benchmark of 2026-10-04 (MIT, https://github.com/Servideus/VoicePaste). facts.wav has white noise at SNR 20 dB; facts-clean.wav is the same speech without noise. long.wav is the five other files in the order of its parts, each followed by 0.8 s of silence. No recordings of real people.",
+  "normalize": {
+    "note": "Same rules as the 2026-11-14 measurement: lowercase, then these replacements in order, then words. Punctuation and case do not count.",
+    "replace": [
+      ["ё", "е"],
+      ["15\\s*[:.]\\s*30|15\\s*часов\\s*30\\s*минут", "1530"],
+      ["2\\s+500", "2500"],
+      ["\\bчетыреста восемьдесят один\\b", "481"],
+      ["\\bдве тысячи пятьсот\\b", "2500"],
+      ["\\bдвенадцатого\\b", "12"],
+      ["\\bдвенадцатое\\b", "12"],
+      ["\\bпятнадцать часов тридцать минут\\b", "1530"],
+      ["\\bпятнадцать тридцать\\b", "1530"],
+      ["\\bдва\\b", "2"],
+      ["\\bдвух\\b", "2"],
+      ["\\bтри\\b", "3"],
+      ["\\bтрех\\b", "3"]
+    ],
+    "word": "[а-яa-z0-9]+"
+  },
+  "samples": [
+    {
+      "id": "short",
+      "file": "short.wav",
+      "voice": "Irina",
+      "text": "Сегодня я проверяю запись голоса и автоматическую вставку текста. Сохрани смысл и расставь знаки препинания."
+    },
+    {
+      "id": "instructions",
+      "file": "instructions.wav",
+      "voice": "Pavel",
+      "text": "Не отправляй письмо Марии сегодня. Перенеси встречу с четверга на пятницу, на пятнадцать часов тридцать минут. Старый файл не удаляй, сначала создай резервную копию."
+    },
+    {
+      "id": "disfluency",
+      "file": "disfluency.wav",
+      "voice": "Irina",
+      "text": "Ну, я хочу перенести встречу на четверг. Нет, на пятницу. В общем, пожалуйста, отправь, отправь Марии новый адрес."
+    },
+    {
+      "id": "facts",
+      "file": "facts.wav",
+      "voice": "Irina, noise SNR 20 dB",
+      "text": "Номер заказа четыреста восемьдесят один. Стоимость доставки две тысячи пятьсот рублей. Курьер приедет двенадцатого октября. Клиент не согласовал оплату, поэтому заказ пока не подтверждён. Нужно проверить адрес и позвонить Сергею. В коробке должно быть два кабеля, а не три. После проверки сохрани документ и закрой программу."
+    },
+    {
+      "id": "facts-clean",
+      "file": "facts-clean.wav",
+      "voice": "Irina",
+      "text": "Номер заказа четыреста восемьдесят один. Стоимость доставки две тысячи пятьсот рублей. Курьер приедет двенадцатого октября. Клиент не согласовал оплату, поэтому заказ пока не подтверждён. Нужно проверить адрес и позвонить Сергею. В коробке должно быть два кабеля, а не три. После проверки сохрани документ и закрой программу."
+    },
+    {
+      "id": "long",
+      "file": "long.wav",
+      "voice": "all five parts, 100 s",
+      "parts": ["short", "instructions", "disfluency", "facts", "facts-clean"]
+    }
+  ]
+}

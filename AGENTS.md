@@ -10,6 +10,8 @@ README ("Для разработчиков"). This file adds what is easy to get
 - `native/gigaam_core/` — Rust core: mel features and ONNX Runtime (`load-dynamic`) on CPU.
 - `scripts/verify-build.ps1` — debug build, release build and lint.
 - `scripts/phone-check.ps1` — installs the debug app and runs the Rust tests on a connected phone.
+- `eval/` — fixed TTS clips with reference texts (`samples.json`) and the measured history
+  (`results.jsonl`, one line per clip and run).
 - `.github/workflows/checks.yml` — CI on Linux: Rust unit tests on the host, plus the same build
   and lint as `verify-build.ps1`.
 - `docs/verification.md` — dated log of what was checked on a device and what was not.
@@ -83,6 +85,17 @@ README ("Для разработчиков"). This file adds what is easy to get
 - Gradle produces an unsigned release APK. The owner signs releases with `apksigner`. Signing keys
   and passwords never go into the repository; `.gitignore` blocks `*.jks`, `*.keystore` and
   `*password*.txt`.
+
+## Recognition quality (eval)
+
+- Before and after changing the model, ONNX Runtime, the audio pipeline or the piece cutting, run
+  `./scripts/phone-check.ps1 -SkipBuild -Eval` (about 2.5 minutes) and commit the new lines of
+  `eval/results.jsonl`. Compare only rows with the same `model` hash and `device`.
+- WER ignores case and punctuation; the normalization rules live in `eval/samples.json` and must
+  not change, or old rows stop being comparable. `long.wav` repeats the five clips, so it is
+  reported apart from their total.
+- Scope: the Rust core on synthetic speech. Not covered: the keyboard's live piece path, real
+  voices, accents, noise other than the one noisy clip.
 
 ## Reporting
 

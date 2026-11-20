@@ -8,6 +8,9 @@ Default run (silent; keyboard settings stay untouched):
 With -Dictation (plays sound from the PC speakers; the phone must be unlocked):
   4. The debug keyboard is switched on for the test, records the phrase from the speakers into a
      Chrome text field, and the previous keyboard is restored afterwards.
+With -Eval (needs the model on the phone: -ModelDir now or in an earlier run):
+  5. The model transcribes the clips in eval/ and the word error rate (WER) is measured.
+     Each run appends one line per clip to eval/results.jsonl.
 
 Line 1 of -PhraseFile (UTF-8) is the phrase; line 2 is text the result must contain.
 -ModelDir is a folder with the five model files listed in ModelSpec.kt.
@@ -18,7 +21,8 @@ param(
     [string] $ModelDir,
     [string] $PhraseFile = (Join-Path $PSScriptRoot 'phone-check-phrase.txt'),
     [switch] $SkipBuild,
-    [switch] $Dictation
+    [switch] $Dictation,
+    [switch] $Eval
 )
 
 $ErrorActionPreference = 'Stop'
@@ -67,6 +71,92 @@ function Get-SdkDir {
     if (-not $line) { throw 'Android SDK not found: set ANDROID_HOME or sdk.dir in local.properties.' }
     # local.properties escapes ':' and '\'.
     ($line.Substring(8) -replace '\\:', ':') -replace '\\+', '\'
+}
+
+function Sync-Files([IO.FileInfo[]] $Files, [string] $Dir) {
+    # Pushes only the files whose size on the phone differs.
+    $sizes = @{}
+    Invoke-Shell "mkdir -p $Dir && stat -c '%n %s' $Dir/* 2>/dev/null" -AllowFail |
+        ForEach-Object { $name, $size = $_ -split ' '; $sizes[($name -split '/')[-1]] = $size }
+    foreach ($file in $Files) {
+        if ($sizes[$file.Name] -ne [string]$file.Length) {
+            Write-Host "    pushing $($file.Name)"
+            Invoke-Native $adb @('push', $file.FullName, "$Dir/") | Out-Null
+        }
+    }
+}
+
+function Get-Words([string] $Text, $Rules) {
+    $normalized = $Text.ToLowerInvariant()
+    foreach ($rule in $Rules.replace) { $normalized = [regex]::Replace($normalized, $rule[0], $rule[1]) }
+    , @([regex]::Matches($normalized, $Rules.word) | ForEach-Object { $_.Value })
+}
+
+function Get-WordErrors([string[]] $Reference, [string[]] $Hypothesis) {
+    # Word-level edit distance: substituted, missing and extra words.
+    $previous = [int[]](0..$Hypothesis.Count)
+    for ($i = 1; $i -le $Reference.Count; $i++) {
+        $current = New-Object int[] ($Hypothesis.Count + 1)
+        $current[0] = $i
+        for ($j = 1; $j -le $Hypothesis.Count; $j++) {
+            $cost = [int]($Reference[$i - 1] -cne $Hypothesis[$j - 1])
+            $current[$j] = [Math]::Min([Math]::Min($current[$j - 1] + 1, $previous[$j] + 1), $previous[$j - 1] + $cost)
+        }
+        $previous = $current
+    }
+    $previous[$Hypothesis.Count]
+}
+
+function Invoke-Eval {
+    # Measures, it does not judge: only a missing model or an unstable transcription is a failure.
+    $set = Get-Content (Join-Path $root 'eval\samples.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not ((Invoke-Shell "test -e $remote/model/v3_e2e_rnnt.yaml && echo found" -AllowFail) -match 'found')) {
+        Write-Host '    No model on the phone: run once with -ModelDir.'
+        return 'FAIL'
+    }
+    Sync-Files @(Get-ChildItem (Join-Path $root 'eval\audio') -File -Filter '*.wav') "$remote/eval"
+    # Rows are comparable only for the same model, so the row names it by a hash of its files.
+    $modelHash = ((Invoke-Shell "cat $remote/model/* | sha256sum") -join '').Substring(0, 12)
+    $commit = (Invoke-Native 'git' @('-C', $root, 'rev-parse', '--short', 'HEAD')) -join ''
+    $dirty = [bool](Invoke-Native 'git' @('-C', $root, 'status', '--porcelain', '--', '.', ':!eval/results.jsonl'))
+    $device = ((Invoke-Shell 'getprop ro.product.model') -join '').Trim()
+    $byId = @{}
+    $set.samples | ForEach-Object { $byId[$_.id] = $_ }
+    $rows = @()
+    foreach ($sample in $set.samples) {
+        $reference = if ($sample.parts) { ($sample.parts | ForEach-Object { $byId[$_].text }) -join ' ' } else { $sample.text }
+        $out = Invoke-Shell ("cd $remote && LD_LIBRARY_PATH=. ORT_DYLIB_PATH=./libonnxruntime.so " +
+            "GIGAAM_TEST_MODEL_DIR=model GIGAAM_TEST_WAV_PATH=eval/$($sample.file) " +
+            './gigaam_core_tests --ignored integration --nocapture 2>&1') -AllowFail
+        $runs = @($out | ForEach-Object {
+            if ($_ -match '^run \d+: \{.*"total_ms":(\d+).*\} text="(.*)"$') {
+                [pscustomobject]@{ ms = [int]$Matches[1]; text = $Matches[2] -replace '\\"', '"' }
+            }
+        })
+        # The test transcribes three times; the same audio must give the same text.
+        if ($runs.Count -lt 3 -or -not $runs[0].text -or @($runs.text | Select-Object -Unique).Count -ne 1) {
+            Write-Host "    $($sample.id): no stable transcription"
+            $out | Select-Object -Last 5 | ForEach-Object { Write-Host "      $_" }
+            return 'FAIL'
+        }
+        $words = Get-Words $reference $set.normalize
+        $errors = Get-WordErrors $words (Get-Words $runs[0].text $set.normalize)
+        $row = [pscustomobject][ordered]@{
+            date = (Get-Date).ToString('yyyy-MM-dd HH:mm'); commit = $commit; dirty = $dirty; device = $device
+            model = $modelHash; sample = $sample.id; words = $words.Count; errors = $errors
+            wer = [Math]::Round(100 * $errors / $words.Count, 1); first_ms = $runs[0].ms
+            warm_ms = ($runs[1..2].ms | Measure-Object -Minimum).Minimum; text = $runs[0].text
+        }
+        Write-Host ('    {0,-13} {1,4} words {2,3} errors {3,5:N1}%   first {4,6} ms   warm {5,6} ms' -f
+            $row.sample, $row.words, $row.errors, $row.wer, $row.first_ms, $row.warm_ms)
+        $rows += $row
+    }
+    $lines = ($rows | ForEach-Object { $_ | ConvertTo-Json -Compress }) -join "`n"
+    [IO.File]::AppendAllText((Join-Path $root 'eval\results.jsonl'), "$lines`n", (New-Object Text.UTF8Encoding $false))
+    # long.wav repeats the five clips, so it is reported apart from their total.
+    $clips = @($rows | Where-Object { $_.sample -ne 'long' })
+    $clipsWer = 100 * ($clips | Measure-Object errors -Sum).Sum / ($clips | Measure-Object words -Sum).Sum
+    'WER {0:N1}% on {1} clips, {2:N1}% on long.wav' -f $clipsWer, $clips.Count, ($rows | Where-Object { $_.sample -eq 'long' }).wer
 }
 
 function Write-DeviceFile([string] $Path, [string] $Text) {
@@ -248,15 +338,7 @@ if (-not $ModelDir) {
 } else {
     $files = @(Get-ChildItem -LiteralPath $ModelDir -File -Filter 'v3_e2e_rnnt*')
     if ($files.Count -lt 5) { throw "$ModelDir must hold the five model files listed in ModelSpec.kt." }
-    $remoteSizes = @{}
-    Invoke-Shell "stat -c '%n %s' $remote/model/* 2>/dev/null" -AllowFail |
-        ForEach-Object { $name, $size = $_ -split ' '; $remoteSizes[($name -split '/')[-1]] = $size }
-    foreach ($file in $files) {
-        if ($remoteSizes[$file.Name] -ne [string]$file.Length) {
-            Write-Host "    pushing $($file.Name)"
-            Invoke-Native $adb @('push', $file.FullName, "$remote/model/") | Out-Null
-        }
-    }
+    Sync-Files $files "$remote/model"
     $expectFile = Join-Path $work 'expect.txt'
     Write-DeviceFile $expectFile $expect
     Invoke-Native $adb @('push', $wav, $expectFile, "$remote/") | Out-Null
@@ -267,6 +349,9 @@ if (-not $ModelDir) {
 
 Write-Host '== 4. Dictation through the debug keyboard'
 $results['Dictation through keyboard'] = if ($Dictation) { Test-Dictation $wav $expect } else { 'SKIPPED (no -Dictation)' }
+
+Write-Host '== 5. Word error rate on the eval clips'
+$results['Eval (WER)'] = if ($Eval) { Invoke-Eval } else { 'SKIPPED (no -Eval)' }
 
 Write-Host '== Summary'
 $results.GetEnumerator() | ForEach-Object { Write-Host ('{0,-32} {1}' -f $_.Key, $_.Value) }
