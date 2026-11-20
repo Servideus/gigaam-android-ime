@@ -9,6 +9,7 @@ README ("Для разработчиков"). This file adds what is easy to get
   (`data/ModelRepository.kt`), JNI bridge (`nativebridge/`).
 - `native/gigaam_core/` — Rust core: mel features and ONNX Runtime (`load-dynamic`) on CPU.
 - `scripts/verify-build.ps1` — debug build, release build and lint.
+- `scripts/phone-check.ps1` — installs the debug app and runs the Rust tests on a connected phone.
 - `.github/workflows/checks.yml` — CI on Linux: Rust unit tests on the host, plus the same build
   and lint as `verify-build.ps1`.
 - `docs/verification.md` — dated log of what was checked on a device and what was not.
@@ -17,7 +18,8 @@ README ("Для разработчиков"). This file adds what is easy to get
 
 - Run `./scripts/verify-build.ps1` before calling a change done.
 - Gradle can leave the ReadOnly attribute on folders under `app/build` and `.gradle`. The next
-  build then fails with "Unable to delete directory". Clear it before building:
+  build then fails with "Unable to delete directory". `verify-build.ps1` clears it; before a
+  direct Gradle run, clear it yourself:
 
   ```powershell
   Get-ChildItem -Recurse -Force -Directory app\build, .gradle -ErrorAction SilentlyContinue |
@@ -25,9 +27,9 @@ README ("Для разработчиков"). This file adds what is easy to get
   ```
 
 - cargo-ndk 4 ignores `--manifest-path`. Run it from `native/gigaam_core`.
-- Without MSVC `link.exe`, host `cargo test` does not link on Windows. Compile the tests for the
-  phone (`cargo ndk -t arm64-v8a test --release --no-run`) and run them there, or rely on the CI
-  run. When neither ran them, report Rust tests as compiled, not passed.
+- Without MSVC `link.exe`, host `cargo test` does not link on Windows. Run the tests on the phone
+  with `scripts/phone-check.ps1`, or rely on the CI run. When neither ran them, report Rust tests
+  as compiled, not passed.
 
 ## Device checks over ADB
 
@@ -40,15 +42,24 @@ README ("Для разработчиков"). This file adds what is easy to get
   outside `files/models` instead.
 - Copy a model without downloading: push the file to `/data/local/tmp`, then
   `adb shell "cat /data/local/tmp/<file> | run-as com.servideus.gigaamime.debug sh -c 'cat > files/models/<model-id>/<file>'"`.
-- Rust tests on the phone: push the test binary
-  (`native/gigaam_core/target/aarch64-linux-android/release/deps/gigaam_core-*`) and
-  `libonnxruntime.so` (from `app/build/intermediates/merged_native_libs/debug/.../arm64-v8a`) to
-  `/data/local/tmp`. Run with `LD_LIBRARY_PATH` and `ORT_DYLIB_PATH` set. The integration test is
-  `--ignored integration` with `GIGAAM_TEST_MODEL_DIR` and `GIGAAM_TEST_WAV_PATH`. A
-  `FORTIFY ... destroyed mutex` abort after the results is known and is not a test failure.
-- Dictation check: `uiautomator dump` does not include the IME window, and the Settings search field
-  cuts text at about 200 characters. Open a Chrome `data:text/html,<textarea>` page, dictate, then
-  read the EditText text from `uiautomator dump`.
+- Rust tests on the phone: `./scripts/phone-check.ps1 -ModelDir <folder with the five model files>`
+  builds and installs the debug app, runs the unit tests, then the integration test: the real
+  model transcribes a Windows TTS phrase from `scripts/phone-check-phrase.txt`. It needs a Russian
+  Windows voice. Without `-ModelDir` the integration test is skipped; `-SkipBuild` reuses the last
+  APK. A non-zero exit code means a failed step. Files stay in `/data/local/tmp/gigaam-check`
+  (about 230 MB with the model); delete that folder to free the space.
+- The test process aborts with `FORTIFY ... destroyed mutex` after printing its results. This is
+  known; judge the run by the `test result:` line, as the script does.
+- Dictation check: `./scripts/phone-check.ps1 -Dictation` (with `-ModelDir` on the first run, so
+  the model can be copied into the debug app). It switches to the debug keyboard, plays the phrase
+  from the PC speakers into a Chrome text field, and restores the previous keyboard. Ask the owner
+  first; the phone must be unlocked and near the speakers.
+- How the script reads the result: `uiautomator dump` sees neither the keyboard nor, in Chrome 158,
+  the page content. The test page copies its field into the page title, and the script reads the
+  title through Chrome's DevTools socket (`adb forward tcp:0 localabstract:chrome_devtools_remote`).
+  That socket lists every open Chrome tab: read only the test tab, never print the others.
+- The mic key position comes from the keyboard window's `touchable region` line in
+  `dumpsys window windows` (screen coordinates), plus 26 dp from its top and right edges.
 - Timing: `adb logcat -s GigaamImeService:I`, line `TranscribeTiming`. Some firmware (the Infinix
   test phone) sets `log.tag=I`, so `Log.d` never appears. Log with `Log.i` or higher.
 - Screenshots: PowerShell `>` corrupts the binary output of `adb exec-out screencap -p`. Use Bash.

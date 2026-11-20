@@ -1,7 +1,12 @@
+param([string[]] $Tasks = @('assembleDebug', 'assembleRelease', 'lintDebug'))
+
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $socketDirectory = Join-Path $projectRoot '.gradle/socket-tmp'
 New-Item -ItemType Directory -Force $socketDirectory | Out-Null
+# Gradle can leave the ReadOnly attribute on its folders; the next build then cannot delete them.
+Get-ChildItem -Recurse -Force -Directory (Join-Path $projectRoot 'app\build'), (Join-Path $projectRoot '.gradle') -ErrorAction SilentlyContinue |
+    ForEach-Object { $_.Attributes = $_.Attributes -band -bnot [IO.FileAttributes]::ReadOnly }
 $previousOptions = $env:JAVA_TOOL_OPTIONS
 try {
     # Java's AF_UNIX pipe can fail with a Windows 8.3 TEMP path.
@@ -11,7 +16,7 @@ try {
     # terminating errors under 'Stop'; Gradle's exit code is checked explicitly instead.
     $ErrorActionPreference = 'Continue'
     try {
-        & './gradlew.bat' --no-daemon assembleDebug assembleRelease lintDebug --console=plain
+        & './gradlew.bat' --no-daemon @Tasks --console=plain
         if ($LASTEXITCODE -ne 0) { throw 'Android build or lint failed.' }
     } finally { Pop-Location }
 } finally { $env:JAVA_TOOL_OPTIONS = $previousOptions }

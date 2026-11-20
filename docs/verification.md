@@ -147,3 +147,21 @@ Smartphone: Infinix X6833B, Android 14, Wi‑Fi.
 - Signed release: the debug build was uninstalled, the signed APK installed, and all four steps were completed through the UI on a clean install, including the model download, warmup and the Android keyboard warning.
 
 Not tested: a server-side download failure, the low-space message, the «Загрузка отменена» text, swiping the app from recents (the process was killed instead), the core-error hint, the system download notification (not seen in the shade on this firmware), Android 8 and other phones.
+
+# Verification: 2026-11-20 (CI and the phone-check script)
+
+CI: `.github/workflows/checks.yml` ran on GitHub for commit `47cf290`, on its branch and again on `main`, green both times. The Linux job ran the Rust unit tests on the host (9 passed, the model integration test ignored). The Android job built debug and release and ran lint, with NDK 27.2.12479018.
+
+`scripts/phone-check.ps1` on the Infinix X6833B, Android 14:
+
+- Green run with `-ModelDir`: debug app installed; Rust unit tests 9 of 9 passed on the phone; the real model transcribed the Windows TTS phrase (voice Irina, 16 kHz) word for word in 0.96–1.10 s per run. Exit code 0.
+- Deliberate red run, expected text changed to «плохая погода»: the integration test failed with the real transcription in the message; exit code 1.
+- Without `-ModelDir` the integration step is reported as skipped; exit code 0.
+- A repeat run did not push the model again: the sizes on the phone matched.
+- `-Dictation`, with the owner's consent: the model was copied into the debug app, the debug keyboard was switched on, the phrase played from the PC speakers went into a Chrome text field word for word and was seen 1.4 s after the stop tap (app log: 0.98 s after stop, model 0.84 s). Gboard was restored after every run, and no test tab or port forward was left behind.
+- Deliberate red run with `-Dictation`: with the wrong expected text both the model step and the dictation step failed; exit code 1, keyboard restored.
+- Full run with the build, `-ModelDir` and `-Dictation`: four steps passed in 55 s; exit code 0.
+
+Two earlier attempts showed why the checks matter. The mic tap first missed (the keyboard window spans the whole screen, so its touchable region is used now). Then `uiautomator dump` did not show the page text in Chrome 158, so the result is read through the page title instead. A stale tab with old text could have passed the check, so each run opens a new page and requires an empty field before dictating.
+
+Not covered by the script: the in-app model download, live human speech.
