@@ -10,3 +10,7 @@
 hs_err_pid*.log
 replay_pid*.log
 /gradle-diagnostic.txt
+# Signing keys and their passwords stay outside the repository
+*.jks
+*.keystore
+*password*.txt
