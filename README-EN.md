@@ -2,6 +2,8 @@
 
 # GigaAM Android IME
 
+> **New:** [HeliBoard GigaAM](https://github.com/Servideus/heliboard-gigaam) is the full HeliBoard keyboard (suggestions, autocorrect, cursor moves by swiping the space bar) whose microphone transcribes speech with this same GigaAM model. If you want a comfortable keyboard for both typing and dictation, install it. This repository stays the home of the speech core and the simple GigaAM keyboard.
+
 An Android keyboard that turns Russian speech into text without the internet. Recognition runs on the phone, using the GigaAM v3 e2e-RNNT model.
 
 **[Download gigaam-ime.apk](https://github.com/Servideus/gigaam-android-ime/releases/latest/download/gigaam-ime.apk)** — the latest version. Release notes are on the [releases page](https://github.com/Servideus/gigaam-android-ime/releases).

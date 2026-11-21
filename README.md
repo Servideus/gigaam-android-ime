@@ -2,6 +2,8 @@
 
 # GigaAM Android IME
 
+> **Новое:** [HeliBoard GigaAM](https://github.com/Servideus/heliboard-gigaam) — полноценная клавиатура HeliBoard (подсказки, автоисправление, курсор свайпом по пробелу), в которой микрофон распознаёт речь этой же моделью GigaAM. Если вам нужна удобная клавиатура для набора и диктовки, ставьте её. Этот репозиторий остаётся домом для распознающего ядра и простой клавиатуры GigaAM.
+
 Клавиатура для Android, которая превращает русскую речь в текст без интернета. Распознавание работает на телефоне, на модели GigaAM v3 e2e-RNNT.
 
 **[Скачать gigaam-ime.apk](https://github.com/Servideus/gigaam-android-ime/releases/latest/download/gigaam-ime.apk)** — последняя версия. Описание версий — на [странице релизов](https://github.com/Servideus/gigaam-android-ime/releases).
