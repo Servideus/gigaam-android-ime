@@ -210,3 +210,13 @@ Keys, debug keyboard on a local test page in Chrome, values read from the page:
 Gboard was restored, the debug keyboard disabled and the test tabs closed.
 
 Not tested: hiding the keyboard by switching to another app or field (the text may then have nowhere to go), an `AudioRecord` read error, a failing `startRecording()`, the narrower Russian keys on a small screen, Android 8 and other phones.
+
+# Verification: 2026-11-21 (release 0.3.1)
+
+Version 0.3.1, versionCode 6, with the keyboard fixes above. `scripts/verify-build.ps1 -Tasks clean,assembleDebug,assembleRelease,lintDebug` passed from a clean tree: Rust rebuilt, lint 0 errors, 57 warnings. The first attempt showed that `clean` always failed, because the script cleared the ReadOnly attribute only inside `app/build`, not on the folder itself; that is fixed.
+
+The release APK was signed outside Gradle with `apksigner` and the project key: certificate SHA-256 `2b2f7ac8014cd662d78eafd1638f18edba96f3c7525b7c805908a637851835ad` (the same as 0.3.0), schemes v2 and v3, `zipalign -c` passed, not debuggable. APK SHA-256 `90638a87773022b80dd4aab9a339cb8f08db3b3e7fca0d8776ce3134534ddc65`.
+
+Infinix X6833B, Android 14: `adb install -r` put 0.3.1 over the signed 0.3.0 without uninstalling. The settings screen then showed the microphone, the model and the enabled keyboard as done, so the model and settings survived the update.
+
+Not tested on the signed release itself: dictation and the new keys (they were checked on the debug build of the same code earlier today), Android 8 and other phones.
