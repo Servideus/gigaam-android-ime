@@ -54,7 +54,7 @@ Versions before 0.3.0 were signed with other keys, so Android will not install 0
 
 ## Status
 
-The latest release is beta 0.3.0. It adds a 4-step setup screen, a background model download that resumes, setup hints in the keyboard, an app icon and a permanent APK signature. Checked on an Infinix X6833B (Helio G99, Android 14): builds and lint pass, live dictation works. Measurements and limits are in the [verification report](docs/verification.md). Android 8 and other phones were not checked.
+The latest release is beta 0.3.1. In it, Enter runs the field's action (search, send), Backspace deletes a selection and a whole emoji, the layout gains «ъ» and «ё», and recording stops when the keyboard hides. 0.3.0 added a 4-step setup screen, a background model download that resumes, setup hints in the keyboard, an app icon and a permanent APK signature. Checked on an Infinix X6833B (Helio G99, Android 14): builds and lint pass, live dictation works. Measurements and limits are in the [verification report](docs/verification.md). Android 8 and other phones were not checked.
 
 ## For developers
 
