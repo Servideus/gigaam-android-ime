@@ -24,7 +24,8 @@ README ("Для разработчиков"). This file adds what is easy to get
   direct Gradle run, clear it yourself:
 
   ```powershell
-  Get-ChildItem -Recurse -Force -Directory app\build, .gradle -ErrorAction SilentlyContinue |
+  @(Get-Item -Force app\build, .gradle -ErrorAction SilentlyContinue) +
+      @(Get-ChildItem -Recurse -Force -Directory app\build, .gradle -ErrorAction SilentlyContinue) |
       ForEach-Object { $_.Attributes = $_.Attributes -band -bnot [IO.FileAttributes]::ReadOnly }
   ```
 

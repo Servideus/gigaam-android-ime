@@ -5,7 +5,10 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $socketDirectory = Join-Path $projectRoot '.gradle/socket-tmp'
 New-Item -ItemType Directory -Force $socketDirectory | Out-Null
 # Gradle can leave the ReadOnly attribute on its folders; the next build then cannot delete them.
-Get-ChildItem -Recurse -Force -Directory (Join-Path $projectRoot 'app\build'), (Join-Path $projectRoot '.gradle') -ErrorAction SilentlyContinue |
+$gradleDirs = (Join-Path $projectRoot 'app\build'), (Join-Path $projectRoot '.gradle')
+# The top folders get the attribute too, and 'clean' must delete app\build itself.
+@(Get-Item -Force $gradleDirs -ErrorAction SilentlyContinue) +
+    @(Get-ChildItem -Recurse -Force -Directory $gradleDirs -ErrorAction SilentlyContinue) |
     ForEach-Object { $_.Attributes = $_.Attributes -band -bnot [IO.FileAttributes]::ReadOnly }
 $previousOptions = $env:JAVA_TOOL_OPTIONS
 try {
