@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -116,6 +117,8 @@ class GigaamImeService : InputMethodService() {
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         stopBackspaceRepeatDeletion()
+        // A hidden keyboard must not keep the microphone on; what was said is still transcribed.
+        if (recording) stopRecordingAndTranscribe()
     }
 
     override fun onDestroy() {
@@ -187,7 +190,8 @@ class GigaamImeService : InputMethodService() {
             currentInputConnection?.commitText(" ", 1)
         }
         view.findViewById<View>(R.id.btnEnter).setOnClickListener {
-            currentInputConnection?.commitText("\n", 1)
+            // Runs the field's action (search, send, go) when it has one; otherwise sends Enter.
+            sendKeyChar('\n')
         }
     }
 
@@ -269,7 +273,8 @@ class GigaamImeService : InputMethodService() {
     }
 
     private fun deleteOneCharacter() {
-        currentInputConnection?.deleteSurroundingText(1, 0)
+        // A key event lets the editor delete a selection or a whole emoji, not half of one.
+        sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
     }
 
     private fun startBackspaceRepeatDeletion() {
@@ -577,7 +582,7 @@ class GigaamImeService : InputMethodService() {
         fun keys(chars: String): List<String> = chars.map(Char::toString)
 
         val DIGIT_ROW = keys("1234567890")
-        val RU_ROWS = listOf(keys("йцукенгшщзх"), keys("фывапролджэ"), keys("ячсмитьбю"))
+        val RU_ROWS = listOf(keys("йцукенгшщзхъ"), keys("фывапролджэё"), keys("ячсмитьбю"))
         val EN_ROWS = listOf(
             keys("qwertyuiop"),
             listOf(HALF_KEY_SPACER) + keys("asdfghjkl") + HALF_KEY_SPACER,

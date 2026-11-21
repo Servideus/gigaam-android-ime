@@ -190,3 +190,23 @@ Checks of the measurement itself:
 - On the phone texts, the PowerShell word errors equal Python's Levenshtein and difflib counts for all six clips.
 - Red runs: a clip scored against another clip's reference gave 95–222% WER; with no model on the phone the eval step failed with exit code 1.
 - All three runs of every clip gave identical text; the script fails the step otherwise.
+
+# Verification: 2026-11-21 (keyboard fixes)
+
+Changes: Enter runs the field's action (`sendKeyChar('\n')`); Backspace sends a DEL key event; the Russian layout gains «ъ» and «ё»; hiding the keyboard stops a running recording and transcribes it; the audio read loop ends on a read error, and `AudioRecord` is released when `startRecording()` fails.
+
+Build: `scripts/verify-build.ps1` passed, lint 0 errors, 57 warnings (two new `HardcodedText` for the new keys).
+
+`scripts/phone-check.ps1 -ModelDir … -Dictation` on the Infinix X6833B, Android 14: debug app installed, Rust unit tests 9 of 9 passed on the phone, the real model transcribed the TTS phrase word for word (0.67–0.70 s per run), keyboard dictation put the phrase into Chrome 1.4 s after stop. Exit code 0.
+
+Keys, debug keyboard on a local test page in Chrome, values read from the page:
+
+- «ъ», «ё», «а» typed into a search field gave «ъёа».
+- Enter in that search field submitted the form and inserted no line break; in a textarea it inserted a line break.
+- Backspace after «a😀» left «a» (the whole emoji went). Backspace with «удалить» fully selected left an empty field.
+- Holding Backspace for 1.5 s deleted six letters.
+- Recording, then the system Back key hid the keyboard: `dumpsys audio` showed the app's MIC client while recording and a `rec stop` right after the hide; the phrase was transcribed and inserted into the still-focused textarea.
+
+Gboard was restored, the debug keyboard disabled and the test tabs closed.
+
+Not tested: hiding the keyboard by switching to another app or field (the text may then have nowhere to go), an `AudioRecord` read error, a failing `startRecording()`, the narrower Russian keys on a small screen, Android 8 and other phones.
