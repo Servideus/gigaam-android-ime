@@ -165,6 +165,11 @@
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="х" />
+
+        <Button
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="ъ" />
     </LinearLayout>
 
     <LinearLayout
@@ -227,6 +232,11 @@
             style="@style/ImeLetterKey"
             android:layout_weight="1"
             android:text="э" />
+
+        <Button
+            style="@style/ImeLetterKey"
+            android:layout_weight="1"
+            android:text="ё" />
     </LinearLayout>
 
     <LinearLayout

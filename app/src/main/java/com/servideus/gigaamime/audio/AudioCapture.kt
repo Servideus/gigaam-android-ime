@@ -27,18 +27,24 @@ class AudioCapture {
             return
         }
         val (record, selectedSampleRate, frameSize) = createAudioRecord()
+        runCatching { record.startRecording() }.onFailure {
+            record.release()
+            throw it
+        }
         audioRecord = record
         sampleRate = selectedSampleRate
         chunks.clear()
         running = true
 
-        record.startRecording()
         readThread = Thread {
             val buffer = ShortArray(frameSize)
             while (running) {
                 val read = record.read(buffer, 0, buffer.size)
                 if (read > 0) {
                     chunks.add(buffer.copyOf(read))
+                } else if (read < 0) {
+                    // An error code repeats on every call; stop reading instead of spinning.
+                    break
                 }
             }
         }.apply {
